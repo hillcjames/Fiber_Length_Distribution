@@ -39,12 +39,11 @@ Possible algorithm:
 
     
 '''
-from PIL import Image
-
+from PIL import Image, ImageDraw
 from colorSpread import getStats
 import numpy as np
 from scipy import dot, array
-from math import cos, sin, pi, sqrt, ceil
+from math import cos, sin, pi, sqrt, ceil, atan
 import datetime
 import os
 
@@ -78,8 +77,8 @@ class BigImage:
             import image_slicer
             try:
                 image_slicer.slice(imDir + imName, numTiles)
-            except Exception:
-                ()
+            except Exception as e:
+                print(e)
             print("Finished slicing.")
             
             for j in range(0, self.num_rows):
@@ -121,6 +120,12 @@ class BigImage:
     def size(self):
         return self.sliceW*self.num_columns, self.sliceH*self.num_rows
     
+    def show(self, i):
+        try:
+            self.imgs[i].show()
+        except IndexError:
+            print("Index", i, "is out of range in list of length", len(self.imgs))
+    
     def putpixel(self, p, c):
         # if the slices are arranged on a grid, the x-coord on that grid
         x = int(p[0] / self.sliceW)
@@ -134,15 +139,31 @@ class BigImage:
         self.imgs[x+y*self.num_columns].putpixel(p1,c)
         
 #         self.pxls[ x + y*self.num_columns ][p0] = c
+#     def copy(self):
+#         copy = BigImage()
+#         self.num_columns
+#         self.num_rows
+#         self.sliceW, self.sliceH
+#         self.names
+#         self.imgs
+#         self.pxls
 
-
+    # This is dumb and probably slow but I'll fix it later.
+    # Instead of only printing the fiber on the tiles the fiber touches, it just tries to print it on all of them.
+    def drawFiber(self, fiber, c):
+        for i in range(0, len(self.imgs)):
+            offset = ( (i%self.num_columns)*self.sliceW, int(i/self.num_columns)*self.sliceH )
+#             print("**********",offset, self.sliceW, self.sliceH, i, self.num_columns, self.num_rows)
+            fiber.draw(self.imgs[i], offset, c)
+          
 
 def sqrDist( p1, p2 ):
     return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
 
 class Fiber:
-    def __init__(self, points):
+    def __init__(self, points, fiberW):
         self.pnts = points
+        self.w = fiberW
         self.calcLength()
         
     def calcLength(self):
@@ -150,6 +171,24 @@ class Fiber:
         for i in range(0, len(self.pnts)-1):
             self.length += sqrt(sqrDist(self.pnts[i], self.pnts[i+1]))
             
+    
+    def draw(self, im, offset, c):
+        draw = ImageDraw.Draw(im)
+        for i in range(0, len(self.pnts)-1):
+            p1 = (self.pnts[i][0] - offset[0], self.pnts[i][1] - offset[1])
+            p2 = (self.pnts[i+1][0] - offset[0], self.pnts[i+1][1] - offset[1])
+            draw.ellipse([(p1[0]-self.w/2+1, p1[1]-self.w/2+1),(p1[0]+self.w/2-1, p1[1]+self.w/2-1)], fill = c)
+#             draw.ellipse([(p1[0]-offset[0]-self.w/2+1, p1[1]-offset[1]-self.w/2+1),(p1[0]-offset[0]+self.w/2-1, p1[1]-offset[1]+self.w/2-1)], fill = c)
+            draw.line([p1,p2], width = 10, fill = c)
+        p0 = (self.pnts[len(self.pnts)-1][0] - offset[0], self.pnts[len(self.pnts)-1][1] - offset[1])
+        draw.ellipse([(p0[0]-self.w/2+1, p0[1]-self.w/2+1),(p0[0]+self.w/2-1, p0[1]+self.w/2-1)], fill = c)
+#tests drawFiber
+# im = Image.new('L', (300,300), 0)
+# l = [(30,100),(50,170),(70,180),(100,220)]
+# f = Fiber(l, 10)
+# f.drawFiber(im)
+# im.show()
+# print(1/0)
 
 def rotate(pts, t, center = [0,0]):
     return dot(pts - center, array([[cos(t),sin(t)],[-sin(t),cos(t)]])) + center
@@ -189,69 +228,119 @@ def showBigger(im, pixels):
 
 def getBestInRegion(im, p, pAvg, fiberW):
     
+    best = pAvg
+    bestP = p
+    for t in range(0,360,30):
+        theta = t/180*pi
+        p1 = (int(p[0]+fiberW/2*cos(theta)), int(p[1]+fiberW/2*sin(theta)))
+        try:
+            newAvg = getAvgDotWhiteness(im, p1, fiberW)
+        except IndexError:
+            continue
+        if newAvg > best:
+            best = newAvg
+            bestP = p1
+            
+    return bestP#, best
+    
     
 # swing a box around the given point like a clock hand, looking for the angle which covers the most white.
-def getBestAngle(im, p, stripW, stripL, spacing):
+def getBestStartAngle(im, p, fiberW, stripL, spacing):
     
     #corners are numbered in clockwise order, with the corner opposite c1 skipped 
     bestT = 0
     bestVal = 0
-    for theta in range(0,360,10):
+#     bestP = 0
+    for theta in range(0,360,5):
         t = theta / 180 * pi
-        c1 = np.array(rotate( np.array([p[0], p[1]]), t, (p[0], p[1])))
-        c2 = np.array(rotate( np.array([p[0]+stripW, p[1]]), t, (p[0], p[1])))
-        c3 = np.array(rotate( np.array([p[0], p[1]+stripL]), t, (p[0], p[1])))
-        v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
+        # this rectangle starts pointing upwards, towards -y.
+#         c1 = np.array(rotate( np.array([p[0]-fiberW/2, p[1]]), t, (p[0], p[1])))
+#         c2 = np.array(rotate( np.array([p[0]+fiberW/2, p[1]]), t, (p[0], p[1])))
+#         c3 = np.array(rotate( np.array([p[0]-fiberW/2, p[1]+stripL]), t, (p[0], p[1])))
+#         v12hat = np.array([(c2[0]-c1[0])/fiberW, (c2[1]-c1[1])/fiberW])
+#         v13hat = np.array([(c3[0]-c1[0])/stripL, (c3[1]-c1[1])/stripL])
+
+        # this rectangle starts pointing sideways, towards +x.
+        c1 = np.array(rotate( np.array([p[0], p[1]-fiberW/2]), t, (p[0], p[1])))
+        c2 = np.array(rotate( np.array([p[0], p[1]+fiberW/2]), t, (p[0], p[1])))
+        c3 = np.array(rotate( np.array([p[0]+stripL, p[1]-fiberW/2]), t, (p[0], p[1])))
+        v12hat = np.array([(c2[0]-c1[0])/fiberW, (c2[1]-c1[1])/fiberW])
         v13hat = np.array([(c3[0]-c1[0])/stripL, (c3[1]-c1[1])/stripL])
     
         # total whiteness of strip 
         whiteness = 0
-        
+        sqrCounter = 0
+        p0 = 0
         # go through each square in the strip
-        for x in range(0, stripW, spacing):
+        for x in range(0, fiberW, spacing):
             for y in range(0, stripL, spacing):
-                p = c1 + x * v12hat + y*v13hat
-                whiteness += im.pixels( (int(p[0]), int(p[1])) )
+                p0 = c1 + x * v12hat + y*v13hat
+                try:
+                    whiteness += im.pixels( (int(p0[0]), int(p0[1])) )
+                except IndexError:
+                    print(p, p0)
+                    raise
+                    
+                sqrCounter += 1
+        whiteness/=sqrCounter
+#         p2 = c1 + fiberW * v12hat + stripL*v13hat
+#         p2 = (int(p2[0]), int(p2[1]))
+#         print(p, whiteness, t/pi*180, p2)
+#         for x in range(0, stripW, spacing):
+#             for y in range(0, stripL, spacing):
+#                 p0 = c1 + x * v12hat + y*v13hat
+#                 p0 = (int(p0[0]), int(p0[1]))
+#                 im.putpixel(p0, int(whiteness))
+        
         if whiteness > bestVal:
             bestVal = whiteness
             bestT = t
+#             p3 = c1 + fiberW * v12hat + stripL*v13hat
+#             p3 = c1 + stripL*v13hat
+#             bestP = (int(p3[0]), int(p3[1]))
+#             p3 = (int(p3[0]), int(p3[1]))
+#             print(p3, (p3[0]-p[0],p3[1]-p[1]), t/pi*180, sin(bestT), cos(bestT))
+#         break
+    
     
     return bestT, bestVal
 
-# def getStripCentroid(im, angle, stripDimensions, spacing):
-#     stripCenX, stripCenY, stripW, stripH = stripDimensions
-#     
-#     #corners are numbered in clockwise order, with the corner opposite c1 skipped 
+def getStripCentroid(im, t, p, fiberW, spacing, avg):
+    stripCenX, stripCenY = p[:]
+    stripW = 2 * fiberW
+    stripL = 4 * fiberW 
+     
+    #corners are numbered in clockwise order, with the corner opposite c1 skipped 
 #     t = angle / 180 * pi
-#     c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#     c2 = np.array(rotate( np.array([stripCenX+stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#     c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripH/2]), t, (stripCenX, stripCenY)))
+    c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripL/2]), t, (stripCenX, stripCenY)))
+    c2 = np.array(rotate( np.array([stripCenX+stripW/2, stripCenY-stripL/2]), t, (stripCenX, stripCenY)))
+    c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripL/2]), t, (stripCenX, stripCenY)))
 #     v12 = np.array([(c2[0]-c1[0]), (c2[1]-c1[1])])
 #     v13 = np.array([(c3[0]-c1[0]), (c3[1]-c1[1])])
-#     v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
-#     v13hat = np.array([(c3[0]-c1[0])/stripH, (c3[1]-c1[1])/stripH])
-# 
-#     # total whiteness of strip 
-#     total = 0
-#     
-#     # x-center of 'mass' (whiteness)
-#     xCOM = 0
-#     
-#     # y-center of 'mass' (whiteness)
-#     yCOM = 0
-#     
-#     # go through each square in the strip
-#     for x in range(0, stripW, spacing):
-#         for y in range(0, stripH, spacing):
-#             p = c1 + x * v12hat + y*v13hat
-#             pInt = (int(p[0]), int(p[1]))
-#             xCOM += p[0] * im.pixels(pInt)
-#             yCOM += p[1] * im.pixels(pInt)
-#             total += im.pixels(pInt)
-#     
-#     c = (int(xCOM/total), int(yCOM/total))
-#     
-#     return c
+    v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
+    v13hat = np.array([(c3[0]-c1[0])/stripL, (c3[1]-c1[1])/stripL])
+ 
+    # total whiteness of strip 
+    total = 0
+     
+    # x-center of 'mass' (whiteness)
+    xCOM = 0
+     
+    # y-center of 'mass' (whiteness)
+    yCOM = 0
+     
+    # go through each square in the strip
+    for x in range(0, stripW, spacing):
+        for y in range(0, stripL, spacing):
+            p = c1 + x * v12hat + y*v13hat
+            pInt = (int(p[0]), int(p[1]))
+            val = (im.pixels(pInt) - avg)
+            xCOM += p[0] * val*val
+            yCOM += p[1] * val*val
+            total += val*val
+    c = (int(xCOM/total), int(yCOM/total))
+    
+    return c
 
 # def checkPoint_coarse( pixels, boxW, x, y ):
 #     lBound = int(0 - boxW/2)
@@ -270,13 +359,12 @@ def getBestAngle(im, p, stripW, stripL, spacing):
 # #     image.show()
 #     showBigger(image, pixels).show()
 
-def getAvgDotWhiteness(im, p, fiberW):
+def getAvgDotWhiteness(im, p, r):
     # use a full box and just iterate over the parts you need
-
     whiteness = 0
-    rSqr = int((fiberW/2)**2)
-    start = -int(fiberW/2)
-    stop = fiberW - int(fiberW/2) + 1
+    rSqr = r**2
+    start = -r - 1
+    stop = r + 1
     numDots = 0
     for x in range(start,stop):
         y = - sqrt(abs(rSqr - x*x))
@@ -292,7 +380,25 @@ def getAvgDotWhiteness(im, p, fiberW):
     return whiteness/numDots
 
 
-def traceFiber(im, fiberW, p):
+def getAvgSqrWhiteness(im, p, r):
+#     if r != int(r):
+#         raise Exception("input r must be an integer")
+    x0, y0 = p[:]
+    w = 2*r + 1
+#     sqr = np.array([[0]*w]*w)
+    sum1 = 0
+    try:
+        for x in range(0, w):
+            for y in range(0, w):
+    #             sqr[x][y] = matrix[x0-r+x][y0-r+y]
+                sum1 += im.pixels((x0-r+x,y0-r+y))
+        sum1 /= w**2
+    except IndexError:
+        return 0
+    return sum1
+
+def traceFiber(im, fiberW, initialP, avg, stdev):
+    jumpDist = 4
     # just in case, add something to break it if it goes into a loop.
     # Maybe if like the user doesn't blot out the background well and you get a thin white ring
     # going around the image, or a severely bent fiber. Don't want that to loop.
@@ -305,41 +411,163 @@ def traceFiber(im, fiberW, p):
     # once done, color fiber in blue.
     # if it fails for some reason, return 0.
     
-    fiberPoints = []
-    fiberPoints.append(p)
-    
-    # 
-    t, lightness = getBestAngle(im, p, fiberW, 2*fiberW, fiberW/3)
-    
-    fiberPoints[0] = t, lightness#junk to stop it from giving me annoying warnings
+#     initialP = (210, 196)
+#     initialP = (205, 416)
+#     im.putpixel(initialP, 180)
+#     im.imgs[0].show()
+#     return
+    initialP = getBestInRegion(im, initialP, getAvgSqrWhiteness(im, initialP, int(fiberW/2)), fiberW)
+#     im.putpixel(initialP, 255)
+#     im.imgs[0].show()
+#     return
+#     p = (208, 196)
+#     p = (170, 145)
+#     p = (40, 367)
+# #     p = (185, 138)
+#     pAvg = getAvgDotWhiteness(im, p, int(fiberW/2))
+#     p5 = getBestInRegion(im, p, pAvg, fiberW)
+#     p7 = getBestInRegion(im, p5, pAvg, fiberW)
+#     t, lightness = getBestAngle(im, p, int(fiberW/4), 4*fiberW, 1)
+# #     t+=pi
+#     p3 = (p[0]+int(fiberW*4*cos(t)),p[1]+int(fiberW*4*sin(t)))
+# 
+#     p6 = getStripCentroid(im, t, p, fiberW, int(fiberW/4), avg)
+#     im.putpixel(p, 70)
+#     im.putpixel(p3, 100)
+#     im.putpixel(p6, 180)
+#     print(p,p6)
+#     im.imgs[0].show()
+#     return
+# 
+#     t, lightness = getBestAngle(im, p, int(fiberW/4), 4*fiberW, 1)
+# #     t -= pi
+#     p3 = (p[0]+int(fiberW*4*cos(t)),p[1]+int(fiberW*4*sin(t)))
+#     t2 = atan(p3[1]/p3[0])
+# #     print("***",(p2[0]-p[0], p2[1]-p[1]),t,t2, t2-t)
+#     im.putpixel(p, 180)
+# #     im.putpixel(p2, 255)
+#     im.putpixel(p3, 255)
+#     im.imgs[0].show()
+#     print(t, lightness)
     
     # if any of the three dots it checks for the next point are blue, have it try again
     # treat blue as dark
     # If I treat blue as light:
     #    the code will not be able to cross intersections accurately
     # if I treat it as dark:
-    #    it might cause some fibers to be cut in half, if they're intersected at a shallow angle.
+    #    it might cause some fibers to be cut in half, but only if they're intersected at a shallow angle.
     #    Assuming that if the next dot is dark and blue, it tries looking ahead in a straight line until that's no longer true.
     #    Maybe add some spread too.
     
-    return Fiber(fiberPoints) 
+    fiberPoints = []
+    fiberPoints.append(initialP)
+    
+    try:
+        t, lightness = getBestStartAngle(im, initialP, int(fiberW/4), 4*fiberW, 1)
+    except IndexError:
+        return 0
+#     t+=pi
+    atEnd = False
+    firstDirectionCompleted = False
+    curP = initialP
+    while not atEnd:
+#         print(curP)
+        nextP = (curP[0]+int(fiberW*jumpDist*cos(t)),curP[1]+int(fiberW*jumpDist*sin(t)))
+        try:
+            adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, avg)
+        except IndexError:
+            adjustedP = nextP
+            
+        try:
+            newT = atan((adjustedP[1]-curP[1])/(adjustedP[0]-curP[0]))
+        except ZeroDivisionError:
+#             print(curP, nextP, adjustedP)
+            newT = pi/2+0.001
+#             raise
+#         print(t, newT)
+        while newT - t > pi:
+            newT -= pi
+        while newT - t < -pi:
+            newT += pi
+        t = newT
+#         print("**",t, newT)
+
+        if getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)) > avg + stdev/2:
+            fiberPoints.append(adjustedP)
+            curP = adjustedP
+#             if len(fiberPoints) > 7:
+#                 print("break", fiberPoints)
+#                 break
+        else:
+            atEnd = True
+#             print(adjustedP, getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)))
+#             try:
+#                 im.putpixel(adjustedP, 180)
+#             except Exception:
+#                 ()
+            
+        if atEnd and not firstDirectionCompleted:
+#             print("In second thing")
+            atEnd = False
+            firstDirectionCompleted = True
+            fiberPoints.reverse()
+            curP = initialP
+            t -= pi
+    
+#     for p in fiberPoints:
+#         im.putpixel(p, 255)
+#     im.imgs[0].show()
+#     print(len(fiberPoints))
+    if len(fiberPoints) < 3:
+        return 0
+    fiber = Fiber(fiberPoints, fiberW)
+    im.drawFiber(fiber, avg-stdev/2)
+    return fiber 
 
 def checkPoint(im, p, r, avg, stdev):
     x,y = p[:]
     sidesBiggerThan = 0
-    if getNearbyAvg(im, (x,y), r) < avg-stdev:
-        return 0
+    # getAvgSqrWhiteness(im, (x,y), r) takes about 5/6 of the time that avgDot takes, but consistently (as expected) reports lower values
+    # for light regions than avgDot does, and identical values for dark regions. So it kinda skews the graph a little, and would
+    # require a lower tolerance of color variation among the fibers.
+    # I'll wait and see if the speed is needed.
+    currentAvg = getAvgDotWhiteness(im, p, r)
+    if currentAvg < avg + stdev/2:
+        return 0,0
     for i in range(-1,2):
         for j in range(-1,2):
-            if getNearbyAvg(im, (x+r*i,y+r*j), r) < avg + stdev:
-                sidesBiggerThan += 1
+            try:
+                if getAvgDotWhiteness(im, (x+r*i,y+r*j), r) < currentAvg:
+                    sidesBiggerThan += 1
+            except Exception:
+                print("bad values were: ",(x+r*i,y+r*j), p, x, y )
+                raise
     if sidesBiggerThan >= 4:
 #         im0.putpixel((x,y), (0,255,0))
-        return 1
-    return 0
+        return 1, currentAvg
+    return 0, 0
 
 
-def main(fiberWidth, imDir, imName):
+def printReport(fiberList):
+    print(len(fiberList), "fibers were found.")
+    
+    total = 0
+    for i in range(0, len(fiberList)):
+        total += fiberList[i].length
+    avg = total/len(fiberList)
+    
+    print("Total length of fibers:", total)
+    print("Average length of a fiber:", avg)
+    
+    sum = 0
+    for i in range(0, len(fiberList)):
+        dif = (fiberList[i].length - avg)
+        sum += dif*dif
+    stdev = sqrt(sum/len(fiberList))
+    
+    print("Standard deviation of fiber length:", stdev)
+
+def main(fiberW, imDir, imName):
     
 #     im = Image.new('RGB', (500,500), (0,0,0))
 #     for i1 in range(0,500):
@@ -348,14 +576,27 @@ def main(fiberWidth, imDir, imName):
 #     im = Image.open("testImgs/singleStraightGlass2.jpg") # has avg of 16 and stdev of 6
 #     im = Image.open("tempSmaller.jpg") # has avg of 16.5 and stdev of 7
 #     pixels = im.load()
-    fiberW = 10
-    im = BigImage(imDir, imName, 1)
+    im = BigImage(imDir, imName, 2)
     imW, imH = im.size()
     print("Image size:", imW, "x", imH)
     
     stdev, avg = im.getStats()
     print("Average and Stdev:",avg,stdev)
-
+    
+#     for x in range(2, imW-2):
+#         for y in range(2, imH-2):
+#             if abs(im.pixels((x,y)) - avg) < stdev:
+#                 c = 0
+#                 for x1 in range(-1, 2):
+#                     for y1 in range(-1, 2):
+#                         if (x1 == 0) and (y1 == 0):
+#                             continue 
+#                         c += im.pixels((x+x1,y+y1))
+#                 c /= 8
+#                 im.putpixel((x,y), c)
+#     im.imgs[0].save("colorAdjustedSmallTest.tif")
+#     im.imgs[0].show()
+#     return8
 #     
 #     #this is the number of lines to separate the strip into - must be ~ 3*fiberWidth
 # #     stripW = fiberW*3
@@ -372,49 +613,70 @@ def main(fiberWidth, imDir, imName):
     fiberList = []
     
     skipSize = 10
-#     print(getAvgDotWhiteness(im, (210,176), 10))
-#     
+#     p = (467,170)
+#     print(getAvgDotWhiteness(im, p, 10))
+#     im.putpixel(p, 255)
+#     im.imgs[0].show()
 #     return
 
-    for x in range(fiberW, imW - fiberW, skipSize):
-        for y in range(fiberW, imH - fiberW, skipSize):
+    start = int(fiberW*1.5)
+    stop = imW - int(fiberW*1.5)
+#     l1 = []
+#     l2 = []
+    for x in range(start, stop, skipSize):
+        for y in range(int(fiberW*1.5), imH - int(fiberW*1.5), skipSize):
             p = (x,y)
-            if getAvgDotWhiteness(im, p,fiberW)  > avg+stdev/2:
-                im.putpixel(p,255)
-    im.imgs[0].show()
-#             if checkPoint(p, fiberW):
-#                 im.putpixel(p, 255)
+#             if getAvgSqrWhiteness(im, p, int(fiberW/2)) > avg + stdev/2:
+#                 l1.append(p)
+#             if checkPoint(im, p, int(fiberW/2), avg, stdev)[0]:
+#                 l2.append(p)
 
-#                 fiber = traceFiber(im, fiberW, p)
-#                 if fiber != 0:
-#                     fiberList.append(fiber)
+#             pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
+#             pointIsValid = pAvg > avg + stdev/2
+            
+            pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
+# 
+            if pointIsValid:
+                p = getBestInRegion(im, p, pAvg, fiberW)
+#                 im.putpixel(p,255)
+# #     for p in l1:
+# #         im.putpixel(p, 180)
+# #     for p in l2:
+# #         im.putpixel(p, 255)
+# #     im.imgs[0].show()
+# #     im.imgs[1].show()
+# #     return
+                fiber = traceFiber(im, fiberW, p, avg, stdev)
+#                 return
+                if fiber != 0:
+                    fiberList.append(fiber)
+#                     if len(fiberList) > 1:
+#                         im.imgs[0].show()
+#                         return
+        print("{}% completed".format(int(1000*x/(stop-start))/10))
     
-    
+    printReport(fiberList)
+    for i in range(0, len(fiberList)):
+        im.drawFiber(fiberList[i], 20+int(i/len(fiberList)*215))
+        print(fiberList[i].length)
+#     im.drawFiber(fiberList[5], 200)
+    im.imgs[0].show()
+    im.imgs[1].show()
     # http://stackoverflow.com/questions/403421
 #     fiberList.sort()
     
 
 if __name__ == "__main__":
+    d1 = datetime.datetime.now()
 #     im = BigImage("","rainbow.jpg",9)
 #     im = BigImage('Images/smallTest.jpg')
-#     main(1, "Images/","smallTest.jpg")
-    main(1, 'Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1(circleLess).tif')
-    ()
+    main(10, "Images/","colorAdjustedSmallTest.tif")
+#     main(10, "Images/","smallTest.jpg")
+#     main(10, 'Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1(circleLess).tif')
+    d2 = datetime.datetime.now()
+    print('Running time:', d2-d1)
 
 
-def getNearbyAvg(im, p, r):
-    if r != int(r):
-        raise Exception("input r must be an integer")
-    x0, y0 = p[:]
-    w = 2*r + 1
-#     sqr = np.array([[0]*w]*w)
-    sum1 = 0
-    for x in range(0, w):
-        for y in range(0, w):
-#             sqr[x][y] = matrix[x0-r+x][y0-r+y]
-            sum1 += im.pixels((x0-r+x,y0-r+y))[0]
-    sum1 /= w**2
-    return sum1
 # 
 # # im = BigImage('Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1.tif', 9)
 # im = Image.open('Images/CarbonFiber/GM_LCF_EGP_23wt%_Middle_FLD1/GM_LCF_EGP_23wt%_Middle_FLD1_02_02.png')
