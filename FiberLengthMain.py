@@ -50,6 +50,8 @@ import os
 
 class BigImage:
     def __init__(self, imDir, imName, numTiles):
+        self.imDir = imDir
+        self.imName = imName
         self.num_columns = int(ceil(sqrt(numTiles)))
         self.num_rows = int(ceil(numTiles / float(self.num_columns)))
         
@@ -60,6 +62,7 @@ class BigImage:
         
         # create a new folder with that image's name, minus the extension
         folder = imName[:len(imName)-index]
+        self.extlessName = folder
         slicesExist = False
         try:
             os.makedirs(os.path.join(imDir, folder))
@@ -155,7 +158,14 @@ class BigImage:
             offset = ( (i%self.num_columns)*self.sliceW, int(i/self.num_columns)*self.sliceH )
 #             print("**********",offset, self.sliceW, self.sliceH, i, self.num_columns, self.num_rows)
             fiber.draw(self.imgs[i], offset, c)
-          
+    
+    def saveAll(self):
+        for i in range(0, len(self.imgs)):
+            image = self.imgs[i]
+            name = "{}_done_{}_{}.bmp".format( self.extlessName, i%self.num_columns, i/self.num_columns)
+            path = os.path.join(self.imDir, self.extlessName, name)
+            image.save(path)
+#             print(path)
 
 def sqrDist( p1, p2 ):
     return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
@@ -420,11 +430,17 @@ decide whether to read images using GDAL or to do it this way, and then just gen
     What if a plugin for imageJ that showed the fiber number next to the fiber on-screen, and an input box that would 
     let you just type in a fiber number to be deleted?
 Except you don't just generate an imageJ file. When you use imageJ, it doesn't save the fibers you trace, it just measures them and draws them.
-So it's not a thing to be able to open a file of fibers. So  
+So it's not a thing to be able to open a file of fibers. So my input must be good, or err on the side of printing too few, or I must write code
+to allow fibers on the image to be correlated with values in the data table
+    Maybe just add a tracked column which records the starting and ending points on the fiber? as well as a column giving each fiber a number?
+    And then something t print those numbers on the image. Or, a search tool to find fibers with an end point very near a given coordinate, 
+    re-draw them, and delete them. Wouldn't need to print any numbers in that case.
     
-Fix and test getNextPoint() if necessary. Original method is looking pretty good.
+Fix and test getNextPoint() if necessary. Original method is looking pretty good though.
 
- 
+Think about imageJ stuff. Binary search to find and delete a given fiber? How do you measure how many fibers exist though, if you delete some?
+Update all the numbers after each deletion? no. Keep a counter of deleted fibers and subtract from original number? just iterate through at the 
+end and count all the entries which aren't null?
 """
 
 
@@ -696,10 +712,10 @@ def main(fiberW, imDir, imName):
 #             if checkPoint(im, p, int(fiberW/2), avg, stdev)[0]:
 #                 l2.append(p)
 
-#             pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
-#             pointIsValid = pAvg > avg + stdev/2
+            pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
+            pointIsValid = pAvg > avg + stdev/2
             
-            pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
+#             pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
 # 
             if pointIsValid:
                 p = getBestInRegion(im, p, pAvg, fiberW)
@@ -723,10 +739,14 @@ def main(fiberW, imDir, imName):
     printReport(fiberList)
     for i in range(0, len(fiberList)):
         im.drawFiber(fiberList[i], 20+int(i/len(fiberList)*215))
-        print(fiberList[i].length)
+#         im.drawFiber(fiberList[i], 20+2*int(i%115))
+#         print(fiberList[i].length)
 #     im.drawFiber(fiberList[5], 200)
-    im.imgs[0].show()
-    im.imgs[1].show()
+    im.imgs[int(len(im.imgs)/2)].show()
+    im.imgs[int((len(im.imgs)-1)/2)].show()
+    
+    im.saveAll()
+    
     # http://stackoverflow.com/questions/403421
 #     fiberList.sort()
     
