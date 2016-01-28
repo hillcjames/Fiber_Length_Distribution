@@ -334,7 +334,9 @@ def getStripCentroid(im, t, p, fiberW, spacing, avg):
         for y in range(0, stripL, spacing):
             p = c1 + x * v12hat + y*v13hat
             pInt = (int(p[0]), int(p[1]))
-            val = (im.pixels(pInt) - avg)
+            #gives a value 0-1 based on distance from centerline, where points along the centerline are highest
+            distFromCenter = (1 - abs(0.1+((x-stripW/2)/(0.5*stripW))))
+            val = (im.pixels(pInt) - avg) * distFromCenter
             xCOM += p[0] * val*val
             yCOM += p[1] * val*val
             total += val*val
@@ -396,6 +398,69 @@ def getAvgSqrWhiteness(im, p, r):
     except IndexError:
         return 0
     return sum1
+
+def pointsAreGood(im, avg, stdev, fPoints):
+    if len(fPoints) < 3:
+        return 0
+    badPoints = 0
+    for i in range(0, len(fPoints)-1):
+        p = fPoints[i]
+        pMid = ( int((fPoints[i+1][0]+p[0])/2), int((fPoints[i+1][1]+p[1])/2) )
+        if im.pixels(p) < avg + stdev/2:
+            badPoints += 1
+        if im.pixels(pMid) < avg + stdev/2:
+            badPoints += 1
+    if im.pixels(fPoints[len(fPoints)-1]) < avg + stdev/2:
+            badPoints += 1
+    return badPoints/(len(fPoints)*2-1) < 0.3
+
+"""
+TODO:
+decide whether to read images using GDAL or to do it this way, and then just generate an ImageJ file as output.
+    What if a plugin for imageJ that showed the fiber number next to the fiber on-screen, and an input box that would 
+    let you just type in a fiber number to be deleted?
+Except you don't just generate an imageJ file. When you use imageJ, it doesn't save the fibers you trace, it just measures them and draws them.
+So it's not a thing to be able to open a file of fibers. So  
+    
+Fix and test getNextPoint() if necessary. Original method is looking pretty good.
+
+ 
+"""
+
+
+
+def getNextPoint(im, avg, t, p, fiberW, spacing):
+    stripCenX, stripCenY = p[:]
+    stripW = 2 * fiberW
+    stripL = 4 * fiberW 
+     
+    #corners are numbered in clockwise order, with the corner opposite c1 skipped 
+#     t = angle / 180 * pi
+    c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripL/2]), t, (stripCenX, stripCenY)))
+    c2 = np.array(rotate( np.array([stripCenX+stripW/2, stripCenY-stripL/2]), t, (stripCenX, stripCenY)))
+    c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripL/2]), t, (stripCenX, stripCenY)))
+    v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
+    v13hat = np.array([(c3[0]-c1[0])/stripL, (c3[1]-c1[1])/stripL])
+ 
+    # total whiteness of strip 
+    total = 0
+     
+    # x-center of 'mass' (whiteness)
+    xCOM = 0
+     
+    # go through each column in the strip
+    for x in range(0, stripW, spacing):
+        colSum = 0
+        for y in range(0, stripL, spacing):
+            p = c1 + x * v12hat + y*v13hat
+            pInt = (int(p[0]), int(p[1]))
+            colSum += im.pixels(pInt) - avg
+        val = colSum*colSum
+        xCOM += p[0] * val
+        total += val
+    c = (int(xCOM/total), int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
+    
+    return c
 
 def traceFiber(im, fiberW, initialP, avg, stdev):
     jumpDist = 4
@@ -471,10 +536,10 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
     firstDirectionCompleted = False
     curP = initialP
     while not atEnd:
-#         print(curP)
         nextP = (curP[0]+int(fiberW*jumpDist*cos(t)),curP[1]+int(fiberW*jumpDist*sin(t)))
         try:
             adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, avg)
+#             adjustedP = getNextPoint(im, avg, t, nextP, fiberW, 1)
         except IndexError:
             adjustedP = nextP
             
@@ -518,7 +583,7 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
 #         im.putpixel(p, 255)
 #     im.imgs[0].show()
 #     print(len(fiberPoints))
-    if len(fiberPoints) < 3:
+    if not pointsAreGood(im, avg, stdev, fiberPoints):
         return 0
     fiber = Fiber(fiberPoints, fiberW)
     im.drawFiber(fiber, avg-stdev/2)
