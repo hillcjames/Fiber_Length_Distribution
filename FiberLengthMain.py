@@ -192,6 +192,10 @@ class Fiber:
             draw.line([p1,p2], width = 10, fill = c)
         p0 = (self.pnts[len(self.pnts)-1][0] - offset[0], self.pnts[len(self.pnts)-1][1] - offset[1])
         draw.ellipse([(p0[0]-self.w/2+1, p0[1]-self.w/2+1),(p0[0]+self.w/2-1, p0[1]+self.w/2-1)], fill = c)
+        
+    def getEndPoints(self):
+        return str(self.pnts[0][0]) + " " + str(self.pnts[0][1]) + " " + str(self.pnts[len(self.pnts)-1][0]) + " " + str(self.pnts[len(self.pnts)-1][1])
+        
 #tests drawFiber
 # im = Image.new('L', (300,300), 0)
 # l = [(30,100),(50,170),(70,180),(100,220)]
@@ -435,6 +439,16 @@ to allow fibers on the image to be correlated with values in the data table
     Maybe just add a tracked column which records the starting and ending points on the fiber? as well as a column giving each fiber a number?
     And then something t print those numbers on the image. Or, a search tool to find fibers with an end point very near a given coordinate, 
     re-draw them, and delete them. Wouldn't need to print any numbers in that case.
+    
+I could still write a plugin or macro or something that would load an input file and create ROI's based on the data therein. 
+Maybe while I'm doing it have a button to measure all ROI's at once. So you could 
+
+Ask if:
+    she knows you can delete both roi's and results, just by clicking on them, so I don't have to do anything fancy
+    also that you can recalculate results if you forgot to set the scale
+    whether she'd be ok with my program just not doing curved fibers, unless I can find a way to input those into a ROI
+        like I might be able to with the straight lines 
+    
     
 Fix and test getNextPoint() if necessary. Original method is looking pretty good though.
 
@@ -702,20 +716,15 @@ def main(fiberW, imDir, imName):
 
     start = int(fiberW*1.5)
     stop = imW - int(fiberW*1.5)
-#     l1 = []
-#     l2 = []
+
     for x in range(start, stop, skipSize):
         for y in range(int(fiberW*1.5), imH - int(fiberW*1.5), skipSize):
             p = (x,y)
-#             if getAvgSqrWhiteness(im, p, int(fiberW/2)) > avg + stdev/2:
-#                 l1.append(p)
-#             if checkPoint(im, p, int(fiberW/2), avg, stdev)[0]:
-#                 l2.append(p)
 
-            pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
-            pointIsValid = pAvg > avg + stdev/2
+#             pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
+#             pointIsValid = pAvg > avg + stdev/2
             
-#             pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
+            pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
 # 
             if pointIsValid:
                 p = getBestInRegion(im, p, pAvg, fiberW)
@@ -730,15 +739,26 @@ def main(fiberW, imDir, imName):
                 fiber = traceFiber(im, fiberW, p, avg, stdev)
 #                 return
                 if fiber != 0:
-                    fiberList.append(fiber)
+                    """
+                    Just since I don't know how to put segmented lines into imageJ, I'm only keeping the endpoints.
+                    """
+                    straightFiber = Fiber([fiber.pnts[0], fiber.pnts[len(fiber.pnts)-1]], fiberW)
+                    if straightFiber.length > 0:
+                        fiberList.append(straightFiber)
 #                     if len(fiberList) > 1:
 #                         im.imgs[0].show()
 #                         return
         print("{}% completed".format(int(1000*x/(stop-start))/10))
     
     printReport(fiberList)
+    
+    f = open(os.path.join( im.imDir, im.extlessName, (im.extlessName + "_data_output_file.txt")), "w")
+    
     for i in range(0, len(fiberList)):
-        im.drawFiber(fiberList[i], 20+int(i/len(fiberList)*215))
+        im.drawFiber(fiberList[i], 80+int(i/len(fiberList)*(255-2*80)))
+        f.write(fiberList[i].getEndPoints())
+        if i < len(fiberList)-1:
+            f.write("\n")
 #         im.drawFiber(fiberList[i], 20+2*int(i%115))
 #         print(fiberList[i].length)
 #     im.drawFiber(fiberList[5], 200)
@@ -751,99 +771,53 @@ def main(fiberW, imDir, imName):
 #     fiberList.sort()
     
 
+
+
+# def test():
+#     fiberW = 9
+#     im = BigImage("Images/","colorAdjustedSmallTest.tif", 2)
+#     imW, imH = im.size()
+#     print("Image size:", imW, "x", imH)
+#     
+#     stdev, avg = im.getStats()
+#     print("Average and Stdev:",avg,stdev)
+#     fiberList = []
+#     
+#     map = np.zeros(shape=(int(imW/3),int(imH/3)))
+#     
+#     skipSize = 10
+# 
+#     start = int(fiberW*0.5)
+#     stop = imW - int(fiberW*0.5)
+#     
+#     for x in range(start, stop, 3):
+#         for y in range(int(fiberW*0.5), imH - int(fiberW*0.5), 3):
+#             p = (x,y)
+#             map[x/3][y/3] = getAvgDotWhiteness(im, p, int(fiberW/2))
+#     
+#     mpIm = Image.new("L",(int(imW/3),int(imH/3)), 0)
+#     
+#     for x in range(0, int(imW/3)):
+#         for y in range(0, int(imH/3)):
+#             if map[x][y] > avg:
+#                 
+#             mpIm.putpixel((x,y), map[x][y])
+#     
+#     mpIm.show()
+    
 if __name__ == "__main__":
     d1 = datetime.datetime.now()
 #     im = BigImage("","rainbow.jpg",9)
 #     im = BigImage('Images/smallTest.jpg')
     main(10, "Images/","colorAdjustedSmallTest.tif")
+#     test()
 #     main(10, "Images/","smallTest.jpg")
 #     main(10, 'Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1(circleLess).tif')
     d2 = datetime.datetime.now()
     print('Running time:', d2-d1)
 
 
-# 
-# # im = BigImage('Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1.tif', 9)
-# im = Image.open('Images/CarbonFiber/GM_LCF_EGP_23wt%_Middle_FLD1/GM_LCF_EGP_23wt%_Middle_FLD1_02_02.png')
-# im = im.convert('RGB')
-# im0 = im.copy()
-# w,h = im.size
-# pixels = im.load()
-# # print(w,h)
-# # print(int(10*w/21), int(11*w/21))
-# # print(1/0)
-# r = 8
-# print("Done loading")
-# # for x in range(r+int(10*w/21), int(11*w/21)-r):
-# #     for y in range(r+int(10*h/21), int(11*h/21)-r):
-# for x in range(2*r,w-2*r,3):
-#     for y in range(2*r,h-2*r,3):
-#         sidesBiggerThan = 0
-#         avg = getNearbyAvg(pixels, (x,y), r)
-#         if avg < 30:
-#             continue
-#         for i in range(-1,2):
-#             for j in range(-1,2):
-#                 if getNearbyAvg(pixels, (x+r*i,y+r*j), r) < avg:
-#                     sidesBiggerThan += 1
-#         if sidesBiggerThan >= 5:
-#             im0.putpixel((x,y), (0,255,0))
-#             
-#             
-# #             im0.show()
-# #             print(x,y, w,h)
-# #             print(1/0)
-# #     if x%3 == 0:
-# #         print((x-r-int(10*w/21))/(int(11*w/21)-r-r-int(10*w/21)))
-#     print(x/w)
-# 
-# # for f in range(0, 9):
-# im0.show()
-
-
-
-#     Image.getdata()
-#     im = Image.open('Images/CarbonFiber/GM_LCF_EGP_23wt%_Middle_FLD1.tif')
-#     import datetime
-#     d1 = datetime.datetime.now()
-#     main(9, "imName")
-#     d2 = datetime.datetime.now()
-#     print(d2-d1)
     
-#     sum2 = 0
-#     
-#     w = 30
-#     h = 90
-#     Cx = 250
-#     Cy = 250
-#     im = Image.new('RGB', (500,500), (0,0,0))
-#     for i1 in range(0,500):
-#         for i2 in range(0,500):
-#             im.putpixel((i1,i2), (int(255*i1/500),int(255*i2/500),int(255*(1-i1/500)*(1-i2/500))))
-#     pixels = im.load()
-#     
-#     d3 = datetime.datetime.now()
-#     
-#     for angle in range(0, 359):
-#         t = angle / 180 * pi
-#         c1 = np.array(rotate( np.array([Cx-w/2, Cy-h/2]), t, (Cx, Cy)))
-#         c2 = np.array(rotate( np.array([Cx+w/2, Cy-h/2]), t, (Cx, Cy)))
-#         c3 = np.array(rotate( np.array([Cx-w/2, Cy+h/2]), t, (Cx, Cy)))
-#         v12 = np.array([(c2[0]-c1[0]), (c2[1]-c1[1])])
-#         v13 = np.array([(c3[0]-c1[0]), (c3[1]-c1[1])])
-#         v12hat = np.array([(c2[0]-c1[0])/w, (c2[1]-c1[1])/w])
-#         v13hat = np.array([(c3[0]-c1[0])/h, (c3[1]-c1[1])/h])
-#         
-#         for y in range(0, h, 2):
-#             for x in range(0, w, 2):
-#                 p = c1 + x * v12hat + y*v13hat
-#                 p = (int(p[0]), int(p[1]))
-#                 for c in range(0,3):
-#                     sum2 += pixels[p][c]
-#     
-#     d4 = datetime.datetime.now()
-# #     im.show()
-#     print(d4-d3, sum2)
 
 # def old():
 #     fiberWidth = 9
