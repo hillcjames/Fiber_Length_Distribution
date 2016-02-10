@@ -292,7 +292,7 @@ def getBestStartAngle(im, p, fiberW, stripL, spacing):
                 try:
                     whiteness += im.pixels( (int(p0[0]), int(p0[1])) )
                 except IndexError:
-                    print(p, p0)
+#                     print(p, p0)
                     raise
                     
                 sqrCounter += 1
@@ -430,31 +430,14 @@ def pointsAreGood(im, avg, stdev, fPoints):
 
 """
 TODO:
-decide whether to read images using GDAL or to do it this way, and then just generate an ImageJ file as output.
-    What if a plugin for imageJ that showed the fiber number next to the fiber on-screen, and an input box that would 
-    let you just type in a fiber number to be deleted?
-Except you don't just generate an imageJ file. When you use imageJ, it doesn't save the fibers you trace, it just measures them and draws them.
-So it's not a thing to be able to open a file of fibers. So my input must be good, or err on the side of printing too few, or I must write code
-to allow fibers on the image to be correlated with values in the data table
-    Maybe just add a tracked column which records the starting and ending points on the fiber? as well as a column giving each fiber a number?
-    And then something t print those numbers on the image. Or, a search tool to find fibers with an end point very near a given coordinate, 
-    re-draw them, and delete them. Wouldn't need to print any numbers in that case.
-    
-I could still write a plugin or macro or something that would load an input file and create ROI's based on the data therein. 
-Maybe while I'm doing it have a button to measure all ROI's at once. So you could 
-
-Ask if:
-    she knows you can delete both roi's and results, just by clicking on them, so I don't have to do anything fancy
-    also that you can recalculate results if you forgot to set the scale
-    whether she'd be ok with my program just not doing curved fibers, unless I can find a way to input those into a ROI
-        like I might be able to with the straight lines 
-    
     
 Fix and test getNextPoint() if necessary. Original method is looking pretty good though.
 
-Think about imageJ stuff. Binary search to find and delete a given fiber? How do you measure how many fibers exist though, if you delete some?
-Update all the numbers after each deletion? no. Keep a counter of deleted fibers and subtract from original number? just iterate through at the 
-end and count all the entries which aren't null?
+Why do some fibers get drawn but not saved?
+
+Why did the program pause (I think) around 11.4% on the big image?
+    loop?
+
 """
 
 
@@ -564,9 +547,9 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
 #     t+=pi
     atEnd = False
     firstDirectionCompleted = False
-    curP = initialP
+    prevP = initialP
     while not atEnd:
-        nextP = (curP[0]+int(fiberW*jumpDist*cos(t)),curP[1]+int(fiberW*jumpDist*sin(t)))
+        nextP = (prevP[0]+int(fiberW*jumpDist*cos(t)),prevP[1]+int(fiberW*jumpDist*sin(t)))
         try:
             adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, avg)
 #             adjustedP = getNextPoint(im, avg, t, nextP, fiberW, 1)
@@ -574,9 +557,9 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
             adjustedP = nextP
             
         try:
-            newT = atan((adjustedP[1]-curP[1])/(adjustedP[0]-curP[0]))
+            newT = atan((adjustedP[1]-prevP[1])/(adjustedP[0]-prevP[0]))
         except ZeroDivisionError:
-#             print(curP, nextP, adjustedP)
+#             print(prevP, nextP, adjustedP)
             newT = pi/2+0.001
 #             raise
 #         print(t, newT)
@@ -585,11 +568,14 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
         while newT - t < -pi:
             newT += pi
         t = newT
+        if abs(newT - t) > pi/8:
+            #if it has a huge bend for some or any reason
+            break
 #         print("**",t, newT)
 
         if getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)) > avg + stdev/2:
             fiberPoints.append(adjustedP)
-            curP = adjustedP
+            prevP = adjustedP
 #             if len(fiberPoints) > 7:
 #                 print("break", fiberPoints)
 #                 break
@@ -597,7 +583,7 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
             atEnd = True
 #             print(adjustedP, getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)))
 #             try:
-#                 im.putpixel(adjustedP, 180)
+#                 im.putpixel(adjustedP, 40)
 #             except Exception:
 #                 ()
             
@@ -606,7 +592,7 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
             atEnd = False
             firstDirectionCompleted = True
             fiberPoints.reverse()
-            curP = initialP
+            prevP = initialP
             t -= pi
     
 #     for p in fiberPoints:
@@ -617,6 +603,8 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
         return 0
     fiber = Fiber(fiberPoints, fiberW)
     im.drawFiber(fiber, avg-stdev/2)
+    im.putpixel(initialP, 255)
+    im.putpixel(fiberPoints[len(fiberPoints)-1], 150)
     return fiber 
 
 def checkPoint(im, p, r, avg, stdev):
@@ -737,8 +725,10 @@ def main(fiberW, imDir, imName):
 # #     im.imgs[1].show()
 # #     return
                 fiber = traceFiber(im, fiberW, p, avg, stdev)
+#                 im.putpixel(p,90)
 #                 return
                 if fiber != 0:
+                    print(fiber.getEndPoints())
                     """
                     Just since I don't know how to put segmented lines into imageJ, I'm only keeping the endpoints.
                     """
@@ -756,6 +746,8 @@ def main(fiberW, imDir, imName):
     
     for i in range(0, len(fiberList)):
         im.drawFiber(fiberList[i], 80+int(i/len(fiberList)*(255-2*80)))
+        im.putpixel(fiberList[i].pnts[0], 255)
+        im.putpixel(fiberList[i].pnts[len(fiberList[i].pnts)-1], 255)
         f.write(fiberList[i].getEndPoints())
         if i < len(fiberList)-1:
             f.write("\n")
