@@ -720,7 +720,7 @@ def traceFiber(im, fiberW, initialP):
 #         im.putpixel(fiberPoints[len(fiberPoints)-1], 150)
 #     except Exception:
 #         ()
-# 
+
 #         print(fiberPoints[len(fiberPoints)-1])
 #         raise
     return straightFiber 
@@ -1183,3 +1183,152 @@ if __name__ == "__main__":
 #             for x in range(0,w):
 #                 c[x, y] = np.array([float(spacing*(x-(w-1)/2) + center[0]),float(spacing*(y-(h-1)/2) + center[1])])
 #         return c
+
+
+
+
+
+# 
+# import math
+# import datetime
+# import random
+# from PIL import Image
+# import numpy
+# 
+# import string
+# import random
+# 
+# def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+#     return ''.join(random.choice(chars) for _ in range(size))
+# 
+# # string = id_generator(16)
+# # print(string)
+# 
+# # def fastMatrix(w,h, pixels ):
+# #     pix = numpy.zeros((w,h,4), dtype = int)
+# #     for i in range(0, w):
+# #         for j in range(0, h):
+# #             for c in range(0,3):
+# #                 pix[i][j][c] = pixels[i,j][c]
+# #             pix[i][j][3] = 0
+# #     return pix
+# #     
+# # im = Image.open("/home/james/workspace python/EllipseFinder/Images/FiberImages/44.5_LCF/LCF_EGP_44.5wt__2sec_79Deg_xz-plane_C6_0_W_40_L_50x_~1.5mm_Fixed_R(color).jpg")
+# # # im = Image.open("/home/james/workspace python/EllipseFinder/Images/tinyTest.jpg")
+# # print("loaded")
+# # pixels = im.load()
+# # w,h = im.size
+# # print("pixels loaded")
+# # 
+# # mat = fastMatrix(w,h,pixels)
+# # 
+# # print("mat loaded")
+# # 
+# # d1 = datetime.datetime.now()
+# # for i in range(0,w):
+# #     for j in range(0,h):
+# #         if pixels[i,j][0] > 128:
+# #             im.putpixel( (i,j), (255,100,255))
+# # d2 = datetime.datetime.now()
+# # print(d2-d1)
+# # im.show()
+# # 
+# # d1 = datetime.datetime.now()
+# # i, j = 0, 0
+# # for i in range(0,w):
+# #     for j in range(0,h):
+# #         if mat[i][j][0] > 128:
+# #             for c in range(0,3):
+# #                 mat[i][j][c] = pixels[i,j][c]
+# #             mat[i][j][3] = 0
+# # 
+# # d2 = datetime.datetime.now()
+# # print(d2-d1)
+# # i, j = 0, 0
+# # for i in range(0,w):
+# #     for j in range(0,h):
+# #         c = ((mat[i][j][:3])[:])
+# #         im.putpixel((i,j), c )
+# # im.show()
+# 
+# def vecMag(v):
+#     return math.sqrt(v[0]**2 + v[1]**2)
+# 
+# # define:
+# # dot goes from previous vector to next vector.
+# 
+# # p0 = (94, 43)
+# # p2 = (98, 43)
+# # p1 = (94, 40)
+# # 
+# # v1 = (p0[0]-p1[0], p0[1]-p1[1])
+# # v2 = (p0[0]-p2[0], p0[1]-p2[1])
+# # 
+# # cosAngle = numpy.dot(v2,v1)/(vecMag(v1)*vecMag(v2))
+# # sinAngle = numpy.cross(v2,v1)/(vecMag(v1)*vecMag(v2))
+# # 
+# # print(cosAngle, sinAngle)
+# # 
+# # for i in range(0, 360,4):
+# #     t = i/180 * math.pi
+# #     print( i,  math.cos(t), math.sin(t))
+# 
+# 
+# def stupidDumbDoorsCarGoatThing( switch, size ):
+#     
+#     doors = [' '] * size # 1 = car
+#     
+#     doors[random.randint(0,len(doors)-1)] = 'c'
+#     
+# 
+#     pick = random.randint(0,len(doors)-1)
+# #     print('p', pick)
+#     badDoors = []
+#     for b in range(0, len(doors)):
+#         if b != pick and doors[b] != 'c':
+#             badDoors.append(b)
+# #     print(badDoors)
+# 
+#     open = badDoors[random.randint(0,len(badDoors)-1)]
+#         
+# #     print('o', open)
+#     
+#     if switch == 1:
+#         for final in range(0, len(doors)):
+#             if final != open and final != pick:
+# #                 print('f', final)
+#                 return doors[final]
+#     else:
+#         return doors[pick]
+#     
+# def testDoors():
+#     sum = 0
+#     iterations = 100000
+#     for i in range(0, iterations):
+#         if stupidDumbDoorsCarGoatThing(0, 3) == 'c':
+#             sum += 1
+#             
+#     print(int(sum/(iterations/1000))/10, "%")
+# 
+# 
+# 
+# l = [1,2,3,4,5,6]
+# i1 = 0
+# while(i1 < len(l)):
+#     f1 = l[i1]
+#     i2 = i1
+#     while(i2 < len(l)):
+#         f2 = l[i2]
+#         
+#         if f1 == 2 and f2 == 4:
+#             l.remove(f2)
+#             f1 = 20
+#             l[i1] = f1
+#             i2 -= 1
+#         i2 += 1
+#     i1 += 1
+# print(l)
+# 
+# 
+
+

@@ -133,6 +133,6 @@ def getStats( pixels, width, height ):
 #     stddev2Col.show()
     print("stdevs found.")
       
-    return(stdev, avg)
+    return(avg, stdev)
 
 
