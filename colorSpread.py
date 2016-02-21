@@ -54,7 +54,9 @@ def graphData(colorCountArray, divs, numPixels):
 
 def countColors( pixels, width, height, divs):
     # if there are three colors, as opposed to being BW
-    if not isinstance( pixels[0,0], int ):
+    if not isinstance( pixels((0,0)), int ):
+        print( pixels( (0,0) ) )
+        print(1/0)
         # initialize an array with all zeros
         colorCountArray = []
         for i in range(0, int(256/divs) + 1):
@@ -64,7 +66,7 @@ def countColors( pixels, width, height, divs):
             #increment each piece of the array when a color fits into that group
             for j in range(0, width):
                 for k in range(0, height):
-                    colorCountArray[ ((pixels[j,k])[i]) / divs ][i] += 1
+                    colorCountArray[ int(((pixels((j,k)))[i]) / divs) ][i] += 1
                     
 #         graphData(colorCountArray, divs, width * height)
     else:
@@ -76,7 +78,7 @@ def countColors( pixels, width, height, divs):
         #increment each piece of the array when a color fits into that group
         for j in range(0, width):
             for k in range(0, height):
-                colorCountArray[ int(pixels[j,k] / divs) ] += 1
+                colorCountArray[ int(pixels((j,k)) / divs) ] += 1
                     
 #         graphData(colorCountArray, divs, width * height)
     return colorCountArray
@@ -84,7 +86,7 @@ def countColors( pixels, width, height, divs):
 def getStats( pixels, width, height ):
     divs = 3
     colorArray = countColors( pixels, width, height, divs)
-    if not isinstance( pixels[0,0], int ):
+    if not isinstance( pixels((0,0)), int ):
         avg = [0,0,0]
         stdev = [0,0,0]
         for i in range(0,3):

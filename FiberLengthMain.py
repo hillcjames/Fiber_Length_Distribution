@@ -46,7 +46,13 @@ from scipy import dot, array
 from math import cos, sin, pi, sqrt, ceil, atan
 import datetime
 import os
+from json.decoder import NaN
 
+# im = Image.open("Images/midSizedTest.jpg")
+# # im = Image.open("Images/smallTest.jpg")
+# pixels = im.load()
+# print(pixels[(0,0)])
+# print(1/0)
 
 class BigImage:
     def __init__(self, imDir, imName, numTiles):
@@ -54,6 +60,8 @@ class BigImage:
         self.imName = imName
         self.num_columns = int(ceil(sqrt(numTiles)))
         self.num_rows = int(ceil(numTiles / float(self.num_columns)))
+        self.avg = 0
+        self.stdev = 0
         
         index = 0
         while imName[len(imName) - 1 - index] != '.':
@@ -79,7 +87,7 @@ class BigImage:
         if not slicesExist:
             import image_slicer
             try:
-                image_slicer.slice(imDir + imName, numTiles)
+                image_slicer.slice(os.path.join(imDir, imName), numTiles)
             except Exception as e:
                 print(e)
             print("Finished slicing.")
@@ -106,6 +114,8 @@ class BigImage:
             self.pxls.append(self.imgs[x].load())
         self.sliceW, self.sliceH = self.imgs[0].size
         
+        self.avg, self.stdev = getStats(self.pixels, self.sliceW, self.sliceH)
+        
     def pixels(self, p):
         # if the slices are arranged on a grid, the x-coord on that grid
         x = int(p[0] / self.sliceW)
@@ -116,9 +126,6 @@ class BigImage:
         
         return self.pxls[ x + y*self.num_columns ][p0]
     
-    def getStats(self):
-        # this, for speed and simplicity's sake, just returns the stats for the center tile.
-        return getStats(self.pxls[int((len(self.imgs)-1)/2)], self.sliceW, self.sliceH)
     
     def size(self):
         return self.sliceW*self.num_columns, self.sliceH*self.num_rows
@@ -174,13 +181,25 @@ class Fiber:
     def __init__(self, points, fiberW):
         self.pnts = points
         self.w = fiberW
+        self.calcAngle()
         self.calcLength()
-        
+    
+    def calcAngle(self):
+        p0, p1 = self.pnts[0], self.pnts[len(self.pnts)-1]
+        self.angle = atan((p1[1] - p0[1])/(p1[0] - p0[0]+0.1))
+    
     def calcLength(self):
         self.length = 0
         for i in range(0, len(self.pnts)-1):
             self.length += sqrt(sqrDist(self.pnts[i], self.pnts[i+1]))
-            
+    
+#     def getAvgPnt(self):
+#         xSum = 0
+#         ySum = 0
+#         for p in self.pnts:
+#             xSum += p[0]
+#             ySum += p[1]
+#         return (int(xSum/len(self.pnts)), int(ySum/len(self.pnts)))
     
     def draw(self, im, offset, c):
         draw = ImageDraw.Draw(im)
@@ -189,12 +208,15 @@ class Fiber:
             p2 = (self.pnts[i+1][0] - offset[0], self.pnts[i+1][1] - offset[1])
             draw.ellipse([(p1[0]-self.w/2+1, p1[1]-self.w/2+1),(p1[0]+self.w/2-1, p1[1]+self.w/2-1)], fill = c)
 #             draw.ellipse([(p1[0]-offset[0]-self.w/2+1, p1[1]-offset[1]-self.w/2+1),(p1[0]-offset[0]+self.w/2-1, p1[1]-offset[1]+self.w/2-1)], fill = c)
-            draw.line([p1,p2], width = 10, fill = c)
+            draw.line([p1,p2], width = int(self.w*1.2), fill = c)
         p0 = (self.pnts[len(self.pnts)-1][0] - offset[0], self.pnts[len(self.pnts)-1][1] - offset[1])
         draw.ellipse([(p0[0]-self.w/2+1, p0[1]-self.w/2+1),(p0[0]+self.w/2-1, p0[1]+self.w/2-1)], fill = c)
         
-    def getEndPoints(self):
+    def getEndPointsStr(self):
         return str(self.pnts[0][0]) + " " + str(self.pnts[0][1]) + " " + str(self.pnts[len(self.pnts)-1][0]) + " " + str(self.pnts[len(self.pnts)-1][1])
+        
+    def getEndPoints(self):
+        return self.pnts[0], self.pnts[len(self.pnts)-1]
         
 #tests drawFiber
 # im = Image.new('L', (300,300), 0)
@@ -202,6 +224,10 @@ class Fiber:
 # f = Fiber(l, 10)
 # f.drawFiber(im)
 # im.show()
+# print(1/0)
+# p0, p1 = (0,0), (-1.1,1)
+#  
+# print(atan((p1[1] - p0[1])/(p1[0] - p0[0]))*180/pi)
 # print(1/0)
 
 def rotate(pts, t, center = [0,0]):
@@ -321,7 +347,7 @@ def getBestStartAngle(im, p, fiberW, stripL, spacing):
 
 def getStripCentroid(im, t, p, fiberW, spacing, avg):
     stripCenX, stripCenY = p[:]
-    stripW = 2 * fiberW
+    stripW = int(3 * fiberW)
     stripL = 4 * fiberW 
      
     #corners are numbered in clockwise order, with the corner opposite c1 skipped 
@@ -432,15 +458,84 @@ def pointsAreGood(im, avg, stdev, fPoints):
 TODO:
     
 Fix and test getNextPoint() if necessary. Original method is looking pretty good though.
-
-Why do some fibers get drawn but not saved?
-
-Why did the program pause (I think) around 11.4% on the big image?
-    loop?
-
 """
 
+def getStraightFiber(im, fiber):
+    '''
+    This returns a straightened version of the input fiber, if said fiber is accurate.
+    Otherwise, returns 0.
+    '''
+#     from scipy.optimize import curve_fit
+    from scipy import stats
+    xd = [p[0] for p in fiber.pnts]
+    yd = [p[1] for p in fiber.pnts]
+#     m, b = curve_fit(straightFit, xd, yd, p0 = (0, 0))[0]
+    m, b = stats.linregress(xd,yd)[:2]
+#     print(m,b)
+#     pMid = fiber.getAvgPnt()
+    newList = []
+    
+    if abs(m) > 2:
+        # this adjusts and adds all the points
+#         for i in range(len(fiber.pnts)):
+#             newList.append( (int((fiber.pnts[i][1] - b)/m), fiber.pnts[i][1]) )
+        # this only adjusts and saves the end points, since that's all we need.
+        newList.append( (int((fiber.pnts[0][1] - b)/m), fiber.pnts[0][1]) )
+        newList.append( (int((fiber.pnts[len(fiber.pnts)-1][1] - b)/m), fiber.pnts[len(fiber.pnts)-1][1]) )
+        
+    elif m != NaN:
+        # this adjusts and adds all the points
+#         for i in range(len(fiber.pnts)):
+#             newList.append( (fiber.pnts[i][0], int(m*fiber.pnts[i][0] + b)) )
+        # this only adjusts and saves the end points, since that's all we need.
+        newList.append( (fiber.pnts[0][0], int(m*fiber.pnts[0][0] + b)) )
+        newList.append( (fiber.pnts[len(fiber.pnts)-1][0], int(m*fiber.pnts[len(fiber.pnts)-1][0] + b)) )
+    else:
+        # fiber is perfectly vertical, can't really calculate its slope
+#         newList.append( fiber.pnts[0] )
+#         newList.append( fiber.pnts[len(fiber.pnts)-1] )
+#         return Fiber(newList, fiber.w);
+        return 0
+    
+    p1 = np.array(newList[0])
+    p2 = np.array(newList[1])
 
+    vec = p2 - p1
+    length = sqrt(sqrDist(p1, p2))
+    numSections = int(length/fiber.w) 
+    vec /= numSections
+    
+    goodPoints = 0
+    
+    for i in range(0, numSections + 2):
+        p = p1 + vec * i
+        p = (int(p[0]), int(p[1]))
+        try:
+            if getAvgDotWhiteness(im, p, int(fiber.w/2)) > im.avg + im.stdev/2:
+                goodPoints += 1
+        except Exception:
+            ()
+    
+    if goodPoints / (numSections + 2) > 0.70:
+        return Fiber(newList, fiber.w)
+    else:
+        return 0
+
+
+def straightFit(x, A, B): # this is your 'straight line' y=f(x)
+    return A*x + B
+
+# im = Image.new('L', (256,256), 0)
+# # f = Fiber([(100,100),(180, 100),(250, 100)], 1 )
+# # f = Fiber([(98,11),(100,110),(104,211)], 1 )
+# f = Fiber([(10,11),(40,56),(100,101),(130,141)], 1 )
+# for p in f.pnts:
+#     im.putpixel(p, 128)
+# newF = getStraightFiber(f, im)
+# for p in newF.pnts:
+#     im.putpixel(p, 255)
+# im.show()
+# print(1/0)
 
 def getNextPoint(im, avg, t, p, fiberW, spacing):
     stripCenX, stripCenY = p[:]
@@ -475,7 +570,7 @@ def getNextPoint(im, avg, t, p, fiberW, spacing):
     
     return c
 
-def traceFiber(im, fiberW, initialP, avg, stdev):
+def traceFiber(im, fiberW, initialP):
     jumpDist = 4
     # just in case, add something to break it if it goes into a loop.
     # Maybe if like the user doesn't blot out the background well and you get a thin white ring
@@ -541,7 +636,7 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
     fiberPoints.append(initialP)
     
     try:
-        t, lightness = getBestStartAngle(im, initialP, int(fiberW/4), 4*fiberW, 1)
+        t = getBestStartAngle(im, initialP, int(fiberW/4), 4*fiberW, 1)[0]
     except IndexError:
         return 0
 #     t+=pi
@@ -551,7 +646,7 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
     while not atEnd:
         nextP = (prevP[0]+int(fiberW*jumpDist*cos(t)),prevP[1]+int(fiberW*jumpDist*sin(t)))
         try:
-            adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, avg)
+            adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, im.avg)
 #             adjustedP = getNextPoint(im, avg, t, nextP, fiberW, 1)
         except IndexError:
             adjustedP = nextP
@@ -562,18 +657,22 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
 #             print(prevP, nextP, adjustedP)
             newT = pi/2+0.001
 #             raise
+#         if initialP == (35, 325):
+#             print("t =", t, newT, abs(newT - t) > pi/8, prevP, nextP, adjustedP)
 #         print(t, newT)
-        while newT - t > pi:
+        while newT - t > pi/2:
             newT -= pi
-        while newT - t < -pi:
+        while newT - t < -pi/2:
             newT += pi
-        t = newT
+#         if initialP == (35, 325):
+#             print("t =", t, newT, abs(newT - t) > pi/8, prevP, nextP, adjustedP)
         if abs(newT - t) > pi/8:
             #if it has a huge bend for some or any reason
             break
+        t = newT
 #         print("**",t, newT)
 
-        if getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)) > avg + stdev/2:
+        if getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)) > im.avg + im.stdev/2:
             fiberPoints.append(adjustedP)
             prevP = adjustedP
 #             if len(fiberPoints) > 7:
@@ -599,15 +698,34 @@ def traceFiber(im, fiberW, initialP, avg, stdev):
 #         im.putpixel(p, 255)
 #     im.imgs[0].show()
 #     print(len(fiberPoints))
-    if not pointsAreGood(im, avg, stdev, fiberPoints):
+
+    if not pointsAreGood(im, im.avg, im.stdev, fiberPoints):
         return 0
     fiber = Fiber(fiberPoints, fiberW)
-    im.drawFiber(fiber, avg-stdev/2)
-    im.putpixel(initialP, 255)
-    im.putpixel(fiberPoints[len(fiberPoints)-1], 150)
-    return fiber 
+    straightFiber = fiber
+#     straightFiber = getStraightFiber(im, fiber)
+    # unnecessary, but otherwise I'll forget it can be 0 too
+    if straightFiber == 0:
+        return 0
+    
+#     if fiber.getEndPointsStr() == "81 269 81 269":
+#         print(initialP)
+#         print(fiberPoints)
+#         print(1/0)
+#       
+#     im.drawFiber(fiber, avg)
+#     im.drawFiber(fiber, avg-stdev/2)
+#     im.putpixel(initialP, 255)
+#     try:
+#         im.putpixel(fiberPoints[len(fiberPoints)-1], 150)
+#     except Exception:
+#         ()
+# 
+#         print(fiberPoints[len(fiberPoints)-1])
+#         raise
+    return straightFiber 
 
-def checkPoint(im, p, r, avg, stdev):
+def checkPoint(im, p, r):
     x,y = p[:]
     sidesBiggerThan = 0
     # getAvgSqrWhiteness(im, (x,y), r) takes about 5/6 of the time that avgDot takes, but consistently (as expected) reports lower values
@@ -615,7 +733,7 @@ def checkPoint(im, p, r, avg, stdev):
     # require a lower tolerance of color variation among the fibers.
     # I'll wait and see if the speed is needed.
     currentAvg = getAvgDotWhiteness(im, p, r)
-    if currentAvg < avg + stdev/2:
+    if currentAvg < im.avg + im.stdev/2:
         return 0,0
     for i in range(-1,2):
         for j in range(-1,2):
@@ -630,6 +748,76 @@ def checkPoint(im, p, r, avg, stdev):
         return 1, currentAvg
     return 0, 0
 
+def fixBrokenFibers(fiberList, fiberW):
+    
+    i1 = 0
+    while(i1 < len(fiberList)):
+        f1 = fiberList[i1]
+        i2 = i1+1
+        while(i2 < len(fiberList)):
+            f2 = fiberList[i2]
+            
+            dist, newLength, far1, far2 = getOrderedEndPoints(f1, f2)
+            endpointsNear = (dist < 16*(fiberW**2))
+            sameSlope = abs(f1.angle - f2.angle) < pi/36
+            if endpointsNear and sameSlope and (newLength > f1.length) and (newLength > f2.length):
+                fiberList.remove(f2)
+                f1 = Fiber([far1, far2], fiberW)
+                fiberList[i1] = f1
+                i2 -= 1
+            i2 += 1
+        i1 += 1
+    return fiberList
+
+# this returns 2 distances and 4 points, in order: 
+#   min, max, 2 closest points, 2 farthest points (min, max, p1, p2, p3, p4)
+def getOrderedEndPoints(f1, f2):
+    p1, p2 = f1.getEndPoints()
+    p3, p4 = f2.getEndPoints()
+    dist13 = sqrDist(p1, p3)
+    dist14 = sqrDist(p1, p4)
+    dist23 = sqrDist(p2, p3)
+    dist24 = sqrDist(p2, p4)
+    
+    l = [(dist13, p1, p3), (dist14, p1, p4), (dist23, p2, p3), (dist24, p2, p4)]
+    
+    minDist = (100000000000, 0)
+    maxDist = (-5, 0)
+    for i1 in range(0, 4):
+        if l[i1][0] >= maxDist[0]:
+            maxDist = l[i1]
+        if l[i1][0] <= minDist[0]:
+            minDist = l[i1]
+    
+    p1, p2 = minDist[1:]
+    p3, p4 = maxDist[1:]
+    return minDist[0], maxDist[0], p3, p4
+
+# f1 = Fiber([(300, 300),(400, 430)], 10)
+# f2 = Fiber([(100, 100),(290, 290)], 10)
+# f1 = Fiber([(556, 331),(676, 327)], 10)
+# f2 = Fiber([(688, 330),(780, 336)], 10)
+# im = Image.new("RGB", (800,800), (0,0,0))
+# im.putpixel(f1.getEndPoints()[0], (255, 0, 0))
+# im.putpixel(f1.getEndPoints()[1], (255, 255, 0))
+# im.putpixel(f2.getEndPoints()[0], (0, 255, 0))
+# im.putpixel(f2.getEndPoints()[1], (0, 255, 255))
+# im.show()
+# print(f1.angle, f2.angle)
+# print(abs(f1.angle - f2.angle))
+# print( pi/35 )
+# raise Exception("Look up/think about how to compare slopes")
+# '''
+# It appears that the ratio of slopes is much more stable near 1/1 than it is at extrema; therefore a different
+# tolerance would be required for firbers with slope ~1 than for fibers with slope ~0.05
+# '''
+# 
+# fL = [f1, f2]
+# print(fL[0].getEndPointsStr(), fL[1].getEndPointsStr())
+# fixBrokenFibers(fL, 10)
+# print(fL[0].getEndPointsStr())
+#    
+# print(1/0)
 
 def printReport(fiberList):
     print(len(fiberList), "fibers were found.")
@@ -642,11 +830,11 @@ def printReport(fiberList):
     print("Total length of fibers:", total)
     print("Average length of a fiber:", avg)
     
-    sum = 0
+    sum0 = 0
     for i in range(0, len(fiberList)):
         dif = (fiberList[i].length - avg)
-        sum += dif*dif
-    stdev = sqrt(sum/len(fiberList))
+        sum0 += dif*dif
+    stdev = sqrt(sum0/len(fiberList))
     
     print("Standard deviation of fiber length:", stdev)
 
@@ -659,12 +847,11 @@ def main(fiberW, imDir, imName):
 #     im = Image.open("testImgs/singleStraightGlass2.jpg") # has avg of 16 and stdev of 6
 #     im = Image.open("tempSmaller.jpg") # has avg of 16.5 and stdev of 7
 #     pixels = im.load()
-    im = BigImage(imDir, imName, 2)
+    im = BigImage(imDir, imName, 4)
     imW, imH = im.size()
     print("Image size:", imW, "x", imH)
     
-    stdev, avg = im.getStats()
-    print("Average and Stdev:",avg,stdev)
+    print("Average and Stdev:",im.avg, im.stdev)
     
 #     for x in range(2, imW-2):
 #         for y in range(2, imH-2):
@@ -694,6 +881,7 @@ def main(fiberW, imDir, imName):
 # 
 #     
     fiberList = []
+#     fullFiberList = []
     
     skipSize = 10
 #     p = (467,170)
@@ -712,7 +900,7 @@ def main(fiberW, imDir, imName):
 #             pAvg = getAvgSqrWhiteness(im, p, int(fiberW/2))
 #             pointIsValid = pAvg > avg + stdev/2
             
-            pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2), avg, stdev)
+            pointIsValid, pAvg = checkPoint(im, p, int(fiberW/2))
 # 
             if pointIsValid:
                 p = getBestInRegion(im, p, pAvg, fiberW)
@@ -724,38 +912,57 @@ def main(fiberW, imDir, imName):
 # #     im.imgs[0].show()
 # #     im.imgs[1].show()
 # #     return
-                fiber = traceFiber(im, fiberW, p, avg, stdev)
+                fiber = traceFiber(im, fiberW, p)
 #                 im.putpixel(p,90)
 #                 return
                 if fiber != 0:
-                    print(fiber.getEndPoints())
-                    """
-                    Just since I don't know how to put segmented lines into imageJ, I'm only keeping the endpoints.
-                    """
-                    straightFiber = Fiber([fiber.pnts[0], fiber.pnts[len(fiber.pnts)-1]], fiberW)
-                    if straightFiber.length > 0:
-                        fiberList.append(straightFiber)
+                    fiberList.append(fiber)
+                    im.drawFiber(fiber, im.avg-im.stdev/8)
+#                     try:
+#                         im.putpixel(fiber.pnts[len(fiber.pnts)-1], 150)
+#                         im.putpixel(fiber.pnts[0], 255)
+#                     except Exception:
+#                         ()
 #                     if len(fiberList) > 1:
 #                         im.imgs[0].show()
 #                         return
         print("{}% completed".format(int(1000*x/(stop-start))/10))
+#     im.imgs[0].show()
+#     im.imgs[1].show()
+#     im.imgs[2].show()
+#     im.imgs[3].show()
+#     
+    print("Hitching together broken fibers")
+    fiberList = fixBrokenFibers(fiberList, fiberW)
+    
     
     printReport(fiberList)
+    
     
     f = open(os.path.join( im.imDir, im.extlessName, (im.extlessName + "_data_output_file.txt")), "w")
     
     for i in range(0, len(fiberList)):
+#         im.drawFiber(fiberList[i], 80+int(i/len(fiberList)*(255-2*80)))
         im.drawFiber(fiberList[i], 80+int(i/len(fiberList)*(255-2*80)))
-        im.putpixel(fiberList[i].pnts[0], 255)
-        im.putpixel(fiberList[i].pnts[len(fiberList[i].pnts)-1], 255)
-        f.write(fiberList[i].getEndPoints())
-        if i < len(fiberList)-1:
-            f.write("\n")
+        try:
+            im.putpixel(fiberList[i].pnts[0], 255)
+            im.putpixel(fiberList[i].pnts[len(fiberList[i].pnts)-1], 255)
+            f.write(fiberList[i].getEndPointsStr())
+            if i < len(fiberList)-1:
+                f.write("\n")
+        except Exception:
+            ()
+        
+        
 #         im.drawFiber(fiberList[i], 20+2*int(i%115))
 #         print(fiberList[i].length)
 #     im.drawFiber(fiberList[5], 200)
-    im.imgs[int(len(im.imgs)/2)].show()
-    im.imgs[int((len(im.imgs)-1)/2)].show()
+#     im.imgs[int(len(im.imgs)/2)].show()
+#     im.imgs[int((len(im.imgs)-1)/2)].show()
+    im.imgs[0].show()
+    im.imgs[1].show()
+    im.imgs[2].show()
+    im.imgs[3].show()
     
     im.saveAll()
     
@@ -801,12 +1008,16 @@ if __name__ == "__main__":
     d1 = datetime.datetime.now()
 #     im = BigImage("","rainbow.jpg",9)
 #     im = BigImage('Images/smallTest.jpg')
-    main(10, "Images/","colorAdjustedSmallTest.tif")
+#     main(10, "Images/","colorAdjustedSmallTest.tif")
 #     test()
 #     main(10, "Images/","smallTest.jpg")
+    main(8, "Images/","smallTest2.jpg")
+#     main(10, "Images", "midSizedTest.jpg")
 #     main(10, 'Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1(circleLess).tif')
     d2 = datetime.datetime.now()
     print('Running time:', d2-d1)
+
+#     os.system('say "beep"')
 
 
     
