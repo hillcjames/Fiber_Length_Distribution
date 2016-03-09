@@ -36,6 +36,17 @@ Possible algorithm:
     Also, I have discovered that pixels = im.load() works faster than np.array(im). 7.6s as opposed to 10.0
     And that it's twice as fast to rotate just the corners and interpolate, than to generate a grid and rotate
         every point
+        
+        
+    Thinking of an algorithm that mimics how a human would draw a line. Look to what would cause a human to 
+    make a mistake, and emulate that. All the different cases a human would miss, and what they would look for.
+    Maybe look at the average blocks around the current block, if there's only one white spot then just find the
+    best angle and go in that direction, but if the white spot it finds is too wide to be a single fiber, look
+    closer for boundaries - a square which has lightness in the center and grey on either side, as close to the 
+    current direction as possible. Don't find the best square, just find all the squares which match the criteria
+    and then pick the one which deviates the least. If there are no squares that do so, but there are some which 
+    are light, then just keep going in the current direction until you hit blackness or a square which you can
+    definitively determine to be on a fiber.
 
     
 '''
@@ -55,13 +66,99 @@ from json.decoder import NaN
 # print(1/0)
 
 class BigImage:
-    def __init__(self, imDir, imName, numTiles):
-        self.imDir = imDir
-        self.imName = imName
-        self.num_columns = int(ceil(sqrt(numTiles)))
-        self.num_rows = int(ceil(numTiles / float(self.num_columns)))
-        self.avg = 0
-        self.stdev = 0
+    def __init__(self, data):
+        self.imDir = data[0]
+        self.imName = data[1]
+        self.num_columns = data[2]
+        self.num_rows = data[3]
+        self.avg = data[4]
+        self.stdev = data[5]
+        self.names = data[6]
+        self.imgs = data[7]
+        self.pxls = data[8]
+        self.extlessName = data[9]
+        self.sliceW, self.sliceH = data[10][:]
+#         self.w, self.h = data[0][:]
+        
+        
+#     def __init__(self, imDir, imName, numTiles):
+#         self.imDir = imDir
+#         self.imName = imName
+#         self.num_columns = int(ceil(sqrt(numTiles)))
+#         self.num_rows = int(ceil(numTiles / float(self.num_columns)))
+#         self.avg = 0
+#         self.stdev = 0
+#         self.names = []
+#         self.imgs = []
+#         self.pxls = []
+#         self.extlessName = ""
+#         self.sliceW, self.sliceH = 0, 0
+#         self.w, self.h = 0, 0
+#         
+#         index = 0
+#         while imName[len(imName) - 1 - index] != '.':
+#             index += 1
+#         index += 1
+#         
+#         # create a new folder with that image's name, minus the extension
+#         folder = imName[:len(imName)-index]
+#         self.extlessName = folder
+#         slicesExist = False
+#         try:
+#             os.makedirs(os.path.join(imDir, folder))
+#         except Exception:
+#             try:
+#                 os.rmdir(os.path.join(imDir, folder))
+#                 os.makedirs(os.path.join(imDir, folder))
+#             except Exception:
+#                 print("Folder to hold image slices already exists and isn't empty, with name.", folder)
+#                 print("Assuming it to be valid, if fileNotFound errors are given later, \
+#                         \nor if anything inside the BigImage __init__() method has been changed, \
+#                         \ntry deleting that folder and re-running program.\n")
+#                 slicesExist = True
+#         if not slicesExist:
+#             import image_slicer
+#             try:
+#                 image_slicer.slice(os.path.join(imDir, imName), numTiles)
+#             except Exception as e:
+#                 print(e)
+#             print("Finished slicing.")
+#             
+#             for j in range(0, self.num_rows):
+#                 for i in range(0,self.num_columns):
+#                     # folder is the name of the image minus its extension
+#                     sliceName = folder + "_0"+str(j+1) + "_0"+str(i+1) + ".png"
+#                     newName = os.path.join(imDir, folder, sliceName)
+#                     os.rename(os.path.join(imDir, sliceName), newName)
+#                 
+#         for j in range(0,self.num_rows):
+#             for i in range(0,self.num_columns):
+#                 sliceName = folder + "_0"+str(j+1) + "_0"+str(i+1) + ".png"
+#                 newName = os.path.join(imDir, folder, sliceName)
+#                 self.names.append(newName)
+#                 self.imgs.append(Image.open(newName))
+#                 self.imgs[len(self.imgs)-1].convert("RGB")
+#         
+#         for x in range(0, len(self.imgs)):
+#             self.pxls.append(self.imgs[x].load())
+#         self.sliceW, self.sliceH = self.imgs[0].size
+#         
+#         self.avg, self.stdev = getStats(self.pixels, self.sliceW, self.sliceH)
+    
+    @classmethod
+    def fromFile(cls, imDir, imName, numTiles):
+        imDir = imDir
+        imName = imName
+        num_columns = int(ceil(sqrt(numTiles)))
+        num_rows = int(ceil(numTiles / float(num_columns)))
+        avg = 0
+        stdev = 0
+        names = []
+        imgs = []
+        pxls = []
+        extlessName = ""
+        sliceW, sliceH = 0, 0
+        w, h = 0, 0
         
         index = 0
         while imName[len(imName) - 1 - index] != '.':
@@ -70,7 +167,7 @@ class BigImage:
         
         # create a new folder with that image's name, minus the extension
         folder = imName[:len(imName)-index]
-        self.extlessName = folder
+        extlessName = folder
         slicesExist = False
         try:
             os.makedirs(os.path.join(imDir, folder))
@@ -92,31 +189,83 @@ class BigImage:
                 print(e)
             print("Finished slicing.")
             
-            for j in range(0, self.num_rows):
-                for i in range(0,self.num_columns):
-                    # folder is the name of the image minus its extension
+            for j in range(0, num_rows):
+                for i in range(0,num_columns):
+#                     folder is the name of the image minus its extension
                     sliceName = folder + "_0"+str(j+1) + "_0"+str(i+1) + ".png"
                     newName = os.path.join(imDir, folder, sliceName)
                     os.rename(os.path.join(imDir, sliceName), newName)
                 
-        self.names = []
-        self.imgs = []
-        for j in range(0,self.num_rows):
-            for i in range(0,self.num_columns):
+        for j in range(0,num_rows):
+            for i in range(0,num_columns):
                 sliceName = folder + "_0"+str(j+1) + "_0"+str(i+1) + ".png"
                 newName = os.path.join(imDir, folder, sliceName)
-                self.names.append(newName)
-                self.imgs.append(Image.open(newName))
-                self.imgs[len(self.imgs)-1].convert("RGB")
+                names.append(newName)
+                imgs.append(Image.open(newName))
+                imgs[len(imgs)-1].convert("RGB")
         
-        self.pxls = []
-        for x in range(0, len(self.imgs)):
-            self.pxls.append(self.imgs[x].load())
-        self.sliceW, self.sliceH = self.imgs[0].size
+        for x in range(0, len(imgs)):
+            pxls.append(imgs[x].load())
+        sliceW, sliceH = imgs[0].size
         
-        self.avg, self.stdev = getStats(self.pixels, self.sliceW, self.sliceH)
+        avg, stdev = getStats(cls.pixels, sliceW, sliceH)
+        
+        data = []
+        data.append(imDir)
+        data.append(imName)
+        data.append(num_columns)
+        data.append(num_rows)
+        data.append(avg)
+        data.append(stdev)
+        data.append(names)
+        data.append(imgs)
+        data.append(pxls)
+        data.append(extlessName)
+        data.append(sliceW, sliceH)
+        
+        return cls(data)
+    
+    @staticmethod
+    def copy(cls, original):
+        
+        imDir = original.imDir
+        imName = original.imName
+        num_columns = original.num_columns
+        num_rows = original.num_rows
+        avg = original.avg
+        stdev = original.stdev
+        extlessName = original.extlessName
+        names = []
+        imgs = []
+        pxls = []
+        
+        for i in range(0, num_columns * num_rows):
+#             for y in range(0, num_rows):
+            names.append( original.names[i].copy() )
+            imgs.append(  original.imgs[i].copy()  )
+            pxls.append(  original.pxls[i].copy()  )
+
+        sliceW, sliceH = original.sliceW, original.sliceH
+        
+        data = []
+        data.append(imDir)
+        data.append(imName)
+        data.append(num_columns)
+        data.append(num_rows)
+        data.append(avg)
+        data.append(stdev)
+        data.append(names)
+        data.append(imgs)
+        data.append(pxls)
+        data.append(extlessName)
+        data.append(sliceW, sliceH)
+        
+        return cls(data)
+        
         
     def pixels(self, p):
+#         if p[0] is float:
+#             return self.floatPixels(p)
         # if the slices are arranged on a grid, the x-coord on that grid
         x = int(p[0] / self.sliceW)
         # if the slices are arranged on a grid, the y-coord on that grid
@@ -125,6 +274,33 @@ class BigImage:
         p0 = (p[0] % self.sliceW, p[1] % self.sliceH)
         
         return self.pxls[ x + y*self.num_columns ][p0]
+        
+        
+    def floatPixels(self, p):
+        # if the slices are arranged on a grid, the x-coord on that grid
+        x = int(p[0] / self.sliceW)
+        # if the slices are arranged on a grid, the y-coord on that grid
+        y = int(p[1] / self.sliceH)
+        
+#         if (p[0] + 1 >= self.) or (p[1] + 1 >= self.h):
+#             raise IndexError
+        
+        p00 = ( (int(p[0]) % self.sliceW), (int(p[1]) % self.sliceH))
+        p01 = ( (int(p[0]) % self.sliceW), (int(p[1]) % self.sliceH) + 1)
+        p10 = ( (int(p[0]) % self.sliceW) + 1, (int(p[1]) % self.sliceH))
+        p11 = ( (int(p[0]) % self.sliceW) + 1, (int(p[1]) % self.sliceH) + 1)
+        
+
+        decPart = np.array(p) - np.array(p00)
+        
+        pxls = self.pxls[ x + y*self.num_columns ]
+        
+        total = (1-decPart[0])*(1-decPart[1]) * pxls[p00]
+        total += (1-decPart[0]) * decPart[1] * pxls[p01]
+        total += decPart[0]*(1-decPart[1]) * pxls[p10]
+        total += decPart[0]*decPart[1] * pxls[p11]
+        
+        return total
     
     
     def size(self):
@@ -173,6 +349,17 @@ class BigImage:
             path = os.path.join(self.imDir, self.extlessName, name)
             image.save(path)
 #             print(path)
+
+
+    
+# im = Image.new('L', (64, 64), 0)
+# pxls = im.load()
+# im.putpixel((11, 11), 100)
+# im.putpixel((11, 12), 100)
+# 
+# p = floatPixels(pxls, (11, 10.5))
+# print(p)
+# print(1/0)
 
 def sqrDist( p1, p2 ):
     return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
@@ -376,7 +563,8 @@ def getStripCentroid(im, t, p, fiberW, spacing, avg):
             pInt = (int(p[0]), int(p[1]))
             #gives a value 0-1 based on distance from centerline, where points along the centerline are highest
             distFromCenter = (1 - abs(0.1+((x-stripW/2)/(0.5*stripW))))
-            val = (im.pixels(pInt) - avg) * distFromCenter
+#             val = (im.pixels(pInt) - avg) * distFromCenter
+            val = (im.floatPixels(p) - avg) * distFromCenter
             xCOM += p[0] * val*val
             yCOM += p[1] * val*val
             total += val*val
@@ -454,11 +642,6 @@ def pointsAreGood(im, avg, stdev, fPoints):
             badPoints += 1
     return badPoints/(len(fPoints)*2-1) < 0.3
 
-"""
-TODO:
-    
-Fix and test getNextPoint() if necessary. Original method is looking pretty good though.
-"""
 
 def getStraightFiber(im, fiber):
     '''
@@ -511,12 +694,13 @@ def getStraightFiber(im, fiber):
         p = p1 + vec * i
         p = (int(p[0]), int(p[1]))
         try:
-            if getAvgDotWhiteness(im, p, int(fiber.w/2)) > im.avg + im.stdev/2:
-                goodPoints += 1
+#             if getAvgDotWhiteness(im, p, int(fiber.w/2)) > im.avg + im.stdev/2:
+#                 goodPoints += 1
+            goodPoints += checkPoint(im, p, int(fiber.w/2))[0]
         except Exception:
             ()
     
-    if goodPoints / (numSections + 2) > 0.70:
+    if goodPoints / (numSections + 1) > 0.70:
         return Fiber(newList, fiber.w)
     else:
         return 0
@@ -525,23 +709,16 @@ def getStraightFiber(im, fiber):
 def straightFit(x, A, B): # this is your 'straight line' y=f(x)
     return A*x + B
 
-# im = Image.new('L', (256,256), 0)
-# # f = Fiber([(100,100),(180, 100),(250, 100)], 1 )
-# # f = Fiber([(98,11),(100,110),(104,211)], 1 )
-# f = Fiber([(10,11),(40,56),(100,101),(130,141)], 1 )
-# for p in f.pnts:
-#     im.putpixel(p, 128)
-# newF = getStraightFiber(f, im)
-# for p in newF.pnts:
-#     im.putpixel(p, 255)
-# im.show()
-# print(1/0)
 
-def getNextPoint(im, avg, t, p, fiberW, spacing):
+def fixPoint(im, t, p, fiberW):
+    '''
+    This should check whether the next strip along the t direction is capable of being on a fiber,
+    and if so, return the best point with the smallest change to t.
+    '''
     stripCenX, stripCenY = p[:]
     stripW = 2 * fiberW
-    stripL = 4 * fiberW 
-     
+    stripL = 1 * fiberW 
+      
     #corners are numbered in clockwise order, with the corner opposite c1 skipped 
 #     t = angle / 180 * pi
     c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripL/2]), t, (stripCenX, stripCenY)))
@@ -549,29 +726,69 @@ def getNextPoint(im, avg, t, p, fiberW, spacing):
     c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripL/2]), t, (stripCenX, stripCenY)))
     v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
     v13hat = np.array([(c3[0]-c1[0])/stripL, (c3[1]-c1[1])/stripL])
- 
-    # total whiteness of strip 
-    total = 0
-     
-    # x-center of 'mass' (whiteness)
+    
+#     spacing = 1
+    
+#     divisions = 7
+    
+    strip = np.zeros(stripW)
+    stripAvgs = np.zeros(int(stripW/2 + 1))
+    
     xCOM = 0
-     
+    total = 0
+    
     # go through each column in the strip
-    for x in range(0, stripW, spacing):
+    for x in range(0, stripW, 1):
         colSum = 0
-        for y in range(0, stripL, spacing):
+        for y in range(0, stripL, 1):
             p = c1 + x * v12hat + y*v13hat
-            pInt = (int(p[0]), int(p[1]))
-            colSum += im.pixels(pInt) - avg
-        val = colSum*colSum
-        xCOM += p[0] * val
-        total += val
-    c = (int(xCOM/total), int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
+#             pInt = (int(p[0]), int(p[1]))
+            colSum += im.pixels(p) - im.avg
+            
+#         val = colSum*colSum
+        distFromCenter = (1 - abs(0.1+((x-stripW/2)/(0.5*stripW))))
+        if colSum > 0:
+            strip[x] = colSum *colSum * distFromCenter
+        else:
+            strip[x] = colSum * colSum
+        
+#         xCOM += p[0] * strip[x/2]
+#         total += strip[x/2]
+
+#     bestI = 0
+#     max0 = -100;
+#     for i1 in range(0, len(stripAvgs)):
+#         total = 0
+#         stripAvg = 0
+# #         stripAvgs[i1] = 0
+#         for i2 in range(0, int(stripW/2)):
+#             t = strip[i1 + i2]
+# #             stripAvgs[i1] += t
+#             stripAvg += t
+#             total += t
+# #         stripAvgs[i1] /= total
+#         stripAvg /= total
+#         if stripAvg > max0:
+#             bestI = i1
+#             max0 = stripAvg
+#             
+# 
+#     c = (int(p[0]+bestI), int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
+
+    bestAvg = 0
+    bestI =int(len(strip)/2)
+    for i in range(0, len(strip)):
+        if strip    [i] > bestAvg:
+            bestAvg = strip[i]
+            bestI = i
+                
+    c = (int(c1[0] + (v12hat*stripW + v13hat*stripL)[0]/2),
+         int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
     
     return c
 
 def traceFiber(im, fiberW, initialP):
-    jumpDist = 4
+    jumpDist = 2
     # just in case, add something to break it if it goes into a loop.
     # Maybe if like the user doesn't blot out the background well and you get a thin white ring
     # going around the image, or a severely bent fiber. Don't want that to loop.
@@ -647,7 +864,7 @@ def traceFiber(im, fiberW, initialP):
         nextP = (prevP[0]+int(fiberW*jumpDist*cos(t)),prevP[1]+int(fiberW*jumpDist*sin(t)))
         try:
             adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, im.avg)
-#             adjustedP = getNextPoint(im, avg, t, nextP, fiberW, 1)
+#             adjustedP = fixPoint(im, t, nextP, fiberW)
         except IndexError:
             adjustedP = nextP
             
@@ -680,6 +897,7 @@ def traceFiber(im, fiberW, initialP):
 #                 break
         else:
             atEnd = True
+            
 #             print(adjustedP, getAvgSqrWhiteness(im, adjustedP, int(fiberW/2)))
 #             try:
 #                 im.putpixel(adjustedP, 40)
@@ -702,8 +920,8 @@ def traceFiber(im, fiberW, initialP):
     if not pointsAreGood(im, im.avg, im.stdev, fiberPoints):
         return 0
     fiber = Fiber(fiberPoints, fiberW)
-    straightFiber = fiber
-#     straightFiber = getStraightFiber(im, fiber)
+#     straightFiber = fiber
+    straightFiber = getStraightFiber(im, fiber)
     # unnecessary, but otherwise I'll forget it can be 0 too
     if straightFiber == 0:
         return 0
@@ -749,7 +967,7 @@ def checkPoint(im, p, r):
     return 0, 0
 
 def fixBrokenFibers(fiberList, fiberW):
-    
+    print("Hitching together broken fibers")
     i1 = 0
     while(i1 < len(fiberList)):
         f1 = fiberList[i1]
@@ -758,8 +976,12 @@ def fixBrokenFibers(fiberList, fiberW):
             f2 = fiberList[i2]
             
             dist, newLength, far1, far2 = getOrderedEndPoints(f1, f2)
+#             if near1 == (87, 119) and near2 == (89, 114):
+#                 print(dist, abs(f1.angle - f2.angle), pi/24)
+#                 print(1/0)
+                
             endpointsNear = (dist < 16*(fiberW**2))
-            sameSlope = abs(f1.angle - f2.angle) < pi/36
+            sameSlope = abs(f1.angle - f2.angle) < pi/24
             if endpointsNear and sameSlope and (newLength > f1.length) and (newLength > f2.length):
                 fiberList.remove(f2)
                 f1 = Fiber([far1, far2], fiberW)
@@ -769,8 +991,9 @@ def fixBrokenFibers(fiberList, fiberW):
         i1 += 1
     return fiberList
 
-# this returns 2 distances and 4 points, in order: 
-#   min, max, 2 closest points, 2 farthest points (min, max, p1, p2, p3, p4)
+
+# this returns 2 distances and 2 points, in order: 
+#   min, max, 2 farthest points (min, max, p3, p4)
 def getOrderedEndPoints(f1, f2):
     p1, p2 = f1.getEndPoints()
     p3, p4 = f2.getEndPoints()
@@ -847,11 +1070,13 @@ def main(fiberW, imDir, imName):
 #     im = Image.open("testImgs/singleStraightGlass2.jpg") # has avg of 16 and stdev of 6
 #     im = Image.open("tempSmaller.jpg") # has avg of 16.5 and stdev of 7
 #     pixels = im.load()
-    im = BigImage(imDir, imName, 4)
+    im = BigImage.fromFile(imDir, imName, 4)
     imW, imH = im.size()
     print("Image size:", imW, "x", imH)
     
     print("Average and Stdev:",im.avg, im.stdev)
+    im.show(1)
+    return
     
 #     for x in range(2, imW-2):
 #         for y in range(2, imH-2):
@@ -932,7 +1157,7 @@ def main(fiberW, imDir, imName):
 #     im.imgs[2].show()
 #     im.imgs[3].show()
 #     
-    print("Hitching together broken fibers")
+    
     fiberList = fixBrokenFibers(fiberList, fiberW)
     
     
@@ -1183,152 +1408,3 @@ if __name__ == "__main__":
 #             for x in range(0,w):
 #                 c[x, y] = np.array([float(spacing*(x-(w-1)/2) + center[0]),float(spacing*(y-(h-1)/2) + center[1])])
 #         return c
-
-
-
-
-
-# 
-# import math
-# import datetime
-# import random
-# from PIL import Image
-# import numpy
-# 
-# import string
-# import random
-# 
-# def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
-#     return ''.join(random.choice(chars) for _ in range(size))
-# 
-# # string = id_generator(16)
-# # print(string)
-# 
-# # def fastMatrix(w,h, pixels ):
-# #     pix = numpy.zeros((w,h,4), dtype = int)
-# #     for i in range(0, w):
-# #         for j in range(0, h):
-# #             for c in range(0,3):
-# #                 pix[i][j][c] = pixels[i,j][c]
-# #             pix[i][j][3] = 0
-# #     return pix
-# #     
-# # im = Image.open("/home/james/workspace python/EllipseFinder/Images/FiberImages/44.5_LCF/LCF_EGP_44.5wt__2sec_79Deg_xz-plane_C6_0_W_40_L_50x_~1.5mm_Fixed_R(color).jpg")
-# # # im = Image.open("/home/james/workspace python/EllipseFinder/Images/tinyTest.jpg")
-# # print("loaded")
-# # pixels = im.load()
-# # w,h = im.size
-# # print("pixels loaded")
-# # 
-# # mat = fastMatrix(w,h,pixels)
-# # 
-# # print("mat loaded")
-# # 
-# # d1 = datetime.datetime.now()
-# # for i in range(0,w):
-# #     for j in range(0,h):
-# #         if pixels[i,j][0] > 128:
-# #             im.putpixel( (i,j), (255,100,255))
-# # d2 = datetime.datetime.now()
-# # print(d2-d1)
-# # im.show()
-# # 
-# # d1 = datetime.datetime.now()
-# # i, j = 0, 0
-# # for i in range(0,w):
-# #     for j in range(0,h):
-# #         if mat[i][j][0] > 128:
-# #             for c in range(0,3):
-# #                 mat[i][j][c] = pixels[i,j][c]
-# #             mat[i][j][3] = 0
-# # 
-# # d2 = datetime.datetime.now()
-# # print(d2-d1)
-# # i, j = 0, 0
-# # for i in range(0,w):
-# #     for j in range(0,h):
-# #         c = ((mat[i][j][:3])[:])
-# #         im.putpixel((i,j), c )
-# # im.show()
-# 
-# def vecMag(v):
-#     return math.sqrt(v[0]**2 + v[1]**2)
-# 
-# # define:
-# # dot goes from previous vector to next vector.
-# 
-# # p0 = (94, 43)
-# # p2 = (98, 43)
-# # p1 = (94, 40)
-# # 
-# # v1 = (p0[0]-p1[0], p0[1]-p1[1])
-# # v2 = (p0[0]-p2[0], p0[1]-p2[1])
-# # 
-# # cosAngle = numpy.dot(v2,v1)/(vecMag(v1)*vecMag(v2))
-# # sinAngle = numpy.cross(v2,v1)/(vecMag(v1)*vecMag(v2))
-# # 
-# # print(cosAngle, sinAngle)
-# # 
-# # for i in range(0, 360,4):
-# #     t = i/180 * math.pi
-# #     print( i,  math.cos(t), math.sin(t))
-# 
-# 
-# def stupidDumbDoorsCarGoatThing( switch, size ):
-#     
-#     doors = [' '] * size # 1 = car
-#     
-#     doors[random.randint(0,len(doors)-1)] = 'c'
-#     
-# 
-#     pick = random.randint(0,len(doors)-1)
-# #     print('p', pick)
-#     badDoors = []
-#     for b in range(0, len(doors)):
-#         if b != pick and doors[b] != 'c':
-#             badDoors.append(b)
-# #     print(badDoors)
-# 
-#     open = badDoors[random.randint(0,len(badDoors)-1)]
-#         
-# #     print('o', open)
-#     
-#     if switch == 1:
-#         for final in range(0, len(doors)):
-#             if final != open and final != pick:
-# #                 print('f', final)
-#                 return doors[final]
-#     else:
-#         return doors[pick]
-#     
-# def testDoors():
-#     sum = 0
-#     iterations = 100000
-#     for i in range(0, iterations):
-#         if stupidDumbDoorsCarGoatThing(0, 3) == 'c':
-#             sum += 1
-#             
-#     print(int(sum/(iterations/1000))/10, "%")
-# 
-# 
-# 
-# l = [1,2,3,4,5,6]
-# i1 = 0
-# while(i1 < len(l)):
-#     f1 = l[i1]
-#     i2 = i1
-#     while(i2 < len(l)):
-#         f2 = l[i2]
-#         
-#         if f1 == 2 and f2 == 4:
-#             l.remove(f2)
-#             f1 = 20
-#             l[i1] = f1
-#             i2 -= 1
-#         i2 += 1
-#     i1 += 1
-# print(l)
-# 
-# 
-
-
