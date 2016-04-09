@@ -5,12 +5,13 @@ Created on Jul 13, 2015
 
 This will count fibers in an image and measure their lengths.
 
-It requires the installation of python3, PIL, and image_slicer
+It requires the installation of python3, PIL, and image_slicer, plus cython, matplotlib, and maybe not iamge_slicer
 on linux, you can just do:
     sudo apt-get install python3
     look up how to install pip, AND install it using python3, not python
     use pip to install PIL
-    sudo python3 -m pip install image_slicer
+    sudo -H python3 -m pip install image_slicer
+    sudo pip3 install cython
 
 Assumes:
     
@@ -59,6 +60,13 @@ import datetime
 import os
 from json.decoder import NaN
 from random import randint
+
+
+from scipy import ndimage, misc
+from matplotlib.pyplot import *
+
+from numpy.core.numeric import ndarray
+from subprocess import call
 
 # im = Image.open("Images/midSizedTest.jpg")
 # # im = Image.open("Images/smallTest.jpg")
@@ -758,7 +766,7 @@ def fixPoint(im, t, p, fiberW):
         colSum = 0
         for y in range(0, stripL, 1):
             p = c1 + x * v12hat + y*v13hat
-#             pInt = intTup(p)
+            p = intTup(p)
             colSum += im.pixels(p) - im.avg
             
 #         val = colSum*colSum
@@ -792,14 +800,14 @@ def fixPoint(im, t, p, fiberW):
 #     c = (int(p[0]+bestI), int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
 
     bestAvg = 0
-#     bestI = len(strip)//2
+    bestI = len(strip)//2
     for i in range(0, len(strip)):
-        if strip    [i] > bestAvg:
+        if strip[i] > bestAvg:
             bestAvg = strip[i]
-#             bestI = i
+            bestI = i
                 
-    c = (int(c1[0] + (v12hat*stripW + v13hat*stripL)[0]/2),
-         int( (c1[1] + (v12hat*stripW + v13hat*stripL)[1]/2) ))
+    c = (int(c1[0] + (v12hat*bestI + v13hat*stripL/2)[0]),
+         int( (c1[1] + (v12hat*bestI + v13hat*stripL/2)[1]) ))
     
     return c
 
@@ -998,8 +1006,8 @@ def traceFiber(im, fiberW, initialP):
     while not atEnd:
         nextP = (prevP[0]+int(fiberW*jumpDist*cos(t)),prevP[1]+int(fiberW*jumpDist*sin(t)))
         try:
-            adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, im.avg)
-#             adjustedP = fixPoint(im, t, nextP, fiberW)
+#             adjustedP = getStripCentroid(im, t, nextP, fiberW, 1, im.avg)
+            adjustedP = fixPoint(im, t, nextP, fiberW)
         except IndexError:
             adjustedP = nextP
             
@@ -1448,218 +1456,99 @@ def main(fiberW, imDir, imName):
     
     # http://stackoverflow.com/questions/403421
 #     fiberList.sort()
+
+def plotIm( im ):
+    imshow(im, cmap='Greys_r', interpolation='none', vmin=0, vmax=255)
+
+
+def displayPlots( ims ):
+    fig = figure()
     
-
-
-
-# def test():
-#     fiberW = 9
-#     im = BigImage("Images/","colorAdjustedSmallTest.tif", 2)
-#     imW, imH = im.size()
-#     print("Image size:", imW, "x", imH)
-#     
-#     stdev, avg = im.getStats()
-#     print("Average and Stdev:",avg,stdev)
-#     fiberList = []
-#     
-#     map = np.zeros(shape=(int(imW/3),int(imH/3)))
-#     
-#     skipSize = 10
-# 
-#     start = int(fiberW*0.5)
-#     stop = imW - int(fiberW*0.5)
-#     
-#     for x in range(start, stop, 3):
-#         for y in range(int(fiberW*0.5), imH - int(fiberW*0.5), 3):
-#             p = (x,y)
-#             map[x/3][y/3] = getAvgDotWhiteness(im, p, fiberW//2)
-#     
-#     mpIm = Image.new("L",(int(imW/3),int(imH/3)), 0)
-#     
-#     for x in range(0, imW//3):
-#         for y in range(0, imH//3):
-#             if map[x][y] > avg:
-#                 
-#             mpIm.putpixel((x,y), map[x][y])
-#     
-#     mpIm.show()
+    w = int( sqrt(2*len(ims)) )
+    h = int(len(ims) / w)
+    while w*h < len(ims):
+        if min([w, h]) == w:
+            w += 1
+        else:
+            h += 1
+    
+    i = 1
+    for im in ims:
+        print(w, h, i)
+        fig.add_subplot(h, w, i)
+        plotIm(im)
+        i += 1
+        
+    show()
+    
+from quickFuncs import *
+def cPythonStuff():
+    call(["python3", "setup.py", "build_ext", "--inplace"])
+    
+     
+#     w = 100
+#     im = np.zeros(((int)(1.5 * w), (int)(1.5 * w)))
+#     for x in range(0, len(im)):
+#         for y in range(0, len(im[0])):
+#             im[y][x] =  255 - int(200 * (sqrt(sqrt(abs((x - len(im)/2)/len(im)))) + sin(20*y/(pi*len(im[0]))))  )
+    
+#     dimensions = (300, 200)
+#     im1 = mergeIms(fiberBox(dimensions, (40, 80), 7*pi/8, 10), fiberBox(dimensions, (180, 130), pi/4, 10))
+#     im2 = mergeIms(fiberBox(dimensions, (150, 70), 0*pi/8, 10), fiberBox(dimensions, (20, 180), 5*pi/8, 10))
+#     im3 = mergeIms(im1, fiberBox(dimensions, (150, 70), 4*pi/8, 10))
+#     im = mergeIms(im2, im3)
+    
+    im = np.array( Image.open("Images/smallTest2.jpg") )
+    
+    im = ndimage.gaussian_filter(im, sigma=2)
+    im = ndimage.gaussian_filter(im, sigma=3)
+    
+    fw = 11
+    fThickness = 1
+    
+    f1 = horizEdgeArray(fw, fThickness)
+    f2 = vertEdgeArray(fw, fThickness)
+    
+    h = ndimage.convolve(im, f1)
+    v = ndimage.convolve(im, f2)
+    
+    res2 = pickyConvolvement(im, f1, f2)
+    
+    sx = ndimage.sobel(im, axis=0, mode='constant')
+    sy = ndimage.sobel(im, axis=1, mode='constant')
+    sob = np.hypot(sx, sy)
+    
+    im = im > 30
+    print(im.type)
+    subIms = []
+    subIms.append(im )
+    subIms.append(h)
+    subIms.append(v)
+    subIms.append(sob)
+    subIms.append(res2)
+    
+    displayPlots( subIms )
+    
     
 if __name__ == "__main__":
-    d1 = datetime.datetime.now()
+    cPythonStuff()
+    
+#     d1 = datetime.datetime.now()
+
 #     im = BigImage("","rainbow.jpg",9)
 #     im = BigImage('Images/smallTest.jpg')
 #     main(10, "Images/","colorAdjustedSmallTest.tif")
 #     test()
 #     main(10, "Images/","smallTest.jpg")
-    main(8, "Images/","smallTest2.jpg")
+
+#     main(8, "Images/","smallTest2.jpg")
+
 #     main(10, "Images", "midSizedTest.jpg")
 #     main(10, 'Images/CarbonFiber/', 'GM_LCF_EGP_23wt%_Middle_FLD1(circleLess).tif')
-    d2 = datetime.datetime.now()
-    print('Running time:', d2-d1)
 
-#     os.system('say "beep"')
+#     d2 = datetime.datetime.now()
+#     print('Running time:', d2-d1)
+
 
 
     
-
-# def old():
-#     fiberWidth = 9
-#     im = Image.new('RGB', (500,500), (0,0,0))
-#     for i1 in range(0,500):
-#         for i2 in range(0,500):
-#             im.putpixel((i1,i2), (int(255*i1/500),int(255*i2/500),int(255*(1-i1/500)*(1-i2/500))))
-# 
-# #     im = Image.open("tempSmaller.jpg")
-#     
-#     pixels = im.load()
-#     imW, imH = im.size
-# #     getStats(pixels, imW, imH)
-# #     print("outside")
-# #     return
-#     imarray = np.array(im)
-#     
-# #     print(pixels[30,30])
-# #     
-# #     print(imarray[30,30])
-# #     
-# #     return
-#     
-#     #this is the number of lines to seperate the strip into - must be ~ 3*fiberWidth
-#     stripW = fiberWidth*3*5
-#     # this accounts for slight luminosity deviations along the fiber, will need a bunch of pixels to do so.
-#     # must be short enough to assume all fibers are straight inside the strip though.
-#     # ~60 maybe
-#     stripH = 60*5
-#     
-#     stripCenX = 500/2
-#     stripCenY = 500/2
-#     
-#     C = getStrip((stripCenX, stripCenY), stripW, stripH, 1)
-#     
-# #     print(C)
-# #     B = np.empty((stripW, stripH),object)
-# #     t = 67 / 180 * pi
-# #     for y in range(0,stripW):
-# #         for x in range(0,stripH):
-# #             B[y, x] = rotate(C[y, x], t, (stripCenX, stripCenY))
-# 
-#     sum1 = 0
-#     
-#     im1 = im.copy()
-#     import datetime
-# #     d1 = datetime.datetime.now()
-# #     # using an existing matrix of coordinates and rotating each one as you come to it
-# #     for angle in range(0, 359,4):
-# # #         maxP = (0,0)
-# # #         minP = (1000,0)
-# #         
-# #         for y in range(0,stripH,2):
-# #             for x in range(0,stripW,2):
-# #                 t = angle / 180 * pi
-# #                 p = rotate(C[x, y], t, (stripCenX, stripCenY))
-# #                 p = int(p[0]), int(p[1])
-# #                 sum1 += pixels[p][0]
-# # #                 im1.putpixel(p,tuple( np.array([255,255,255])-np.array(pixels[p][:])))
-# # #                 if p[0] > maxP[0]:
-# # #                     maxP = p
-# # #                 elif p[0] < minP[0]:
-# # #                     minP = p
-# # #         print(maxP, minP)
-# #     d2 = datetime.datetime.now()
-# #     im1.show()
-# #     print(d2-d1, sum1)
-#     sum1 = 0
-#     
-#     d2 = datetime.datetime.now()
-#     for angle in range(0, 359,4):
-#         
-#         #corners are numbered in clockwise order, with the corner opposite c1 skipped 
-#         t = angle / 180 * pi
-#         c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#         c2 = np.array(rotate( np.array([stripCenX+stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#         c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripH/2]), t, (stripCenX, stripCenY)))
-#         v12 = np.array([(c2[0]-c1[0]), (c2[1]-c1[1])])
-#         v13 = np.array([(c3[0]-c1[0]), (c3[1]-c1[1])])
-#         v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
-#         v13hat = np.array([(c3[0]-c1[0])/stripH, (c3[1]-c1[1])/stripH])
-# #         print(c1,c2,c3)
-# #         print(c1,c1+v12,c1+v13)
-# #         print(c1,c1+stripW*v12hat,c1+stripH*v13hat)
-#         
-#         for y in range(0, stripH, 2):
-#             for x in range(0, stripW, 2):
-#                 p = c1 + x * v12hat + y*v13hat
-#                 p = (int(p[0]), int(p[1]))
-# #                 try:
-#                 sum1 += pixels[p][0]
-# #                     im.putpixel(p,tuple( np.array([255,255,255])-np.array(pixels[p][:])))
-# #                 except:
-# #                     ()
-#     
-#     d3 = datetime.datetime.now()
-# #     im.show()
-#     print(d3-d2, sum1)
-#     
-#     sum2 = 0
-#     
-#     d3 = datetime.datetime.now()
-#     for angle in range(0, 359,4):
-#         
-#         #corners are numbered in clockwise order, with the corner opposite c1 skipped 
-#         t = angle / 180 * pi
-#         c1 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#         c2 = np.array(rotate( np.array([stripCenX+stripW/2, stripCenY-stripH/2]), t, (stripCenX, stripCenY)))
-#         c3 = np.array(rotate( np.array([stripCenX-stripW/2, stripCenY+stripH/2]), t, (stripCenX, stripCenY)))
-#         v12 = np.array([(c2[0]-c1[0]), (c2[1]-c1[1])])
-#         v13 = np.array([(c3[0]-c1[0]), (c3[1]-c1[1])])
-#         v12hat = np.array([(c2[0]-c1[0])/stripW, (c2[1]-c1[1])/stripW])
-#         v13hat = np.array([(c3[0]-c1[0])/stripH, (c3[1]-c1[1])/stripH])
-# #         print(c1,c2,c3)
-# #         print(c1,c1+v12,c1+v13)
-# #         print(c1,c1+stripW*v12hat,c1+stripH*v13hat)
-#         
-#         for y in range(0, stripH, 2):
-#             for x in range(0, stripW, 2):
-#                 p = c1 + x * v12hat + y*v13hat
-#                 p = (int(p[0]), int(p[1]))
-# #                 try:
-#                 sum2 += imarray[p][0]
-# #                     im.putpixel(p,tuple( np.array([255,255,255])-np.array(pixels[p][:])))
-# #                 except:
-# #                     ()
-#     
-#     d4 = datetime.datetime.now()
-# #     im.show()
-#     print(d4-d3, sum2)
-# 
-# #     im.putpixel((250,250), (255,255,255))
-# #     im.show()
-#     return
-#     class Strip:
-#         def __init__(self, w, h, x, y, t, spacing ):
-#             c = np.empty((w, h),object)
-#             for y in range(0,h):
-#                 for x in range(0,w):
-#                     c[x, y] = np.array([float(spacing*(x-(w-1)/2) + x),float(spacing*(y-(h-1)/2) + y)])
-#             return c
-#         
-#             self._w = w
-#             self._h = h
-#             self._x = x # x_center
-#             self._y = y # y_center
-#             self._t = t # angle from x-axis
-#             
-#         def set(self, x, y, val):
-#             self._l[y, x] = val
-#         
-#         def get(self, x, y):
-#             return self._l[y, x]
-#     
-#     
-#     def getStrip(center, w, h, spacing):
-#         c = np.empty((w, h),object)
-#     
-#         for y in range(0,h):
-#             for x in range(0,w):
-#                 c[x, y] = np.array([float(spacing*(x-(w-1)/2) + center[0]),float(spacing*(y-(h-1)/2) + center[1])])
-#         return c
