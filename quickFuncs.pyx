@@ -30,8 +30,8 @@ def horizEdgeArray( w, thickness ):
         fiberCenterEdge = (int)((len(a[0]) - fiberCenterWidth) / 2)
          
          
-        edgePixelValue = 1
-        centerPixelVlaue = 3
+        edgePixelValue = -1
+        centerPixelVlaue = 4
          
         fiberTotalValue = fiberCenterWidth * centerPixelVlaue + (w - fiberCenterWidth) * edgePixelValue
          
@@ -70,8 +70,8 @@ def vertEdgeArray( w, thickness ):
         fiberCenterEdge = (int)((len(a) - fiberCenterWidth) / 2)
         
         
-        edgePixelValue = 1
-        centerPixelVlaue = 3
+        edgePixelValue = -1
+        centerPixelVlaue = 4
         
         fiberTotalValue = fiberCenterWidth * centerPixelVlaue + (w - fiberCenterWidth) * edgePixelValue
         
@@ -84,7 +84,7 @@ def vertEdgeArray( w, thickness ):
                 a[ (len(a) - 1 - i), 1 + t] = outsidePixelValue
             
             for i in range(fiberEdge, fiberCenterEdge):
-                a[(i, 1)] = edgePixelValue
+                a[(i, 1 + t)] = edgePixelValue
                 a[ (len(a) - 1 - i), 1 + t] = edgePixelValue
             
             for i in range(fiberCenterEdge, fiberCenterEdge + fiberCenterWidth):
@@ -93,6 +93,62 @@ def vertEdgeArray( w, thickness ):
     except Exception:
         print("Width value too low.")
         
+    return a
+
+def edgeArray( w, degrees, fThickness ):
+
+    try:
+        # with fiber width w
+        a = np.zeros(((int)(1.5 * w), (int)(1.5 * w)))
+        
+        # x-location of the edge of the fiber
+        fiberEdge = (int)(0.25 * w)
+        
+        # width of the central all-light region
+        fiberCenterWidth = (int)(0.75*w)
+        
+        # x-location of the edge of the central all-light region
+        fiberCenterEdge = (int)((len(a) - fiberCenterWidth) / 2)
+        
+        edgePixelValue = -1
+        centerPixelVlaue = 4
+        
+        fiberTotalValue = fiberCenterWidth * centerPixelVlaue + (w - fiberCenterWidth) * edgePixelValue
+        
+        outsidePixelValue = -1 * (int)(fiberTotalValue / (2 * fiberEdge))
+    
+#         print(fiberEdge, fiberCenterEdge)
+        for t in range(0, fThickness):
+            for i in range(0, fiberEdge):
+                a[(i, len(a)/2 - fThickness/2)] = outsidePixelValue
+                a[ (len(a) - 1 - i), len(a)/2 - fThickness/2] = outsidePixelValue
+            
+            for i in range(fiberEdge, fiberCenterEdge):
+                a[(i, len(a)/2 - fThickness/2)] = edgePixelValue
+                a[ (len(a) - 1 - i), len(a)/2 - fThickness/2] = edgePixelValue
+            
+            for i in range(fiberCenterEdge, fiberCenterEdge + fiberCenterWidth + 1):
+                a[(i, len(a)/2 - fThickness/2)] = centerPixelVlaue
+    
+    except Exception:
+        print("Width value too low.")
+    
+    return ndimage.interpolation.rotate(a, angle = degrees, order = 1)
+
+def circleArray( w ):
+    # with fiber width w
+    a = np.zeros((w, w))
+    a -= 0.5
+    
+    r = w*0.5
+    
+    for x in range(0, w):
+        for y in range(0, w):
+            dSqr = (w*0.5 - x - 0.5)**2 + (w*0.5 - y - 0.5)**2
+            print(x, y, dSqr, r**2 )
+            if dSqr <= r**2:
+                a[x, y] = 0.5
+    
     return a
 
 def crossEdgeArray( w ):
@@ -207,8 +263,15 @@ def pickyConvolvement( im, f1, f2 ):
     
     tempIm = mergeIms(im1, im2)
     
-    return 255 * tempIm / tempIm.max()
+    return tempIm
+#     return 255 * tempIm / tempIm.max()
 
+def toBinImg( im, thresh ):
+    ind = im < thresh
+    ind0 = im >= thresh
+    im[ind] = 0
+    im[ind0] = 1
+    return im
 # im = crossEdgeArray(7)
 
 

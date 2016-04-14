@@ -866,6 +866,7 @@ def traceFiber2(im, fiberW, initialP):
             avg += colSum
         avg /= stripL * stripW
         
+        adjustedP = 0/1
     #     spacing = 1
         
     #     divisions = 7
@@ -1458,7 +1459,9 @@ def main(fiberW, imDir, imName):
 #     fiberList.sort()
 
 def plotIm( im ):
-    imshow(im, cmap='Greys_r', interpolation='none', vmin=0, vmax=255)
+    imshow(im, cmap='Greys_r', interpolation='none', vmin=0, vmax=255,
+            extent=(0, len(im[0]), 0, len(im))
+           )
 
 
 def displayPlots( ims ):
@@ -1474,7 +1477,7 @@ def displayPlots( ims ):
     
     i = 1
     for im in ims:
-        print(w, h, i)
+#         print(w, h, i)
         fig.add_subplot(h, w, i)
         plotIm(im)
         i += 1
@@ -1499,36 +1502,127 @@ def cPythonStuff():
 #     im = mergeIms(im2, im3)
     
     im = np.array( Image.open("Images/smallTest2.jpg") )
+    im0 = im.copy()
     
-    im = ndimage.gaussian_filter(im, sigma=2)
-    im = ndimage.gaussian_filter(im, sigma=3)
+#     im = ndimage.gaussian_filter(im, sigma=2)
+    im = ndimage.gaussian_filter(im, sigma=5)
     
-    fw = 11
+#     circleFilter = circleArray( 11 )
+#     circleTest = ndimage.convolve(im, circleFilter)
+#     circleFilter *= 128
+#     circleFilter += 256
+    
+#     im -= ndarray.min(im)
+#     im *= 255/ndarray.max(im)
+    
+    fw = 4
+
     fThickness = 1
-    
+      
     f1 = horizEdgeArray(fw, fThickness)
     f2 = vertEdgeArray(fw, fThickness)
-    
+      
     h = ndimage.convolve(im, f1)
     v = ndimage.convolve(im, f2)
     
+    r1 = edgeArray(fw, 45, fThickness)
+    r3 = edgeArray(fw, 135, fThickness)
+    print(fw, len(r1))
+#     print(f1)
+#     print(im)
+#     displayPlots( [im, f1] )
+#     return
     res2 = pickyConvolvement(im, f1, f2)
+    res3 = pickyConvolvement(im, r1, r3)
+    res23 = mergeIms(res2, res3)
     
+#     res3 = np.zeros((len(res2), len(res2[0])))
+#     
+#     subDv = 3
+#     for xC in range(0, int((len(res2)-1)/subDv)):
+#         for yC in range(0, int((len(res2[0])-1)/subDv)):
+#             maxP = (-100, (0,0))
+#             minP = ( 300, (0,0))
+#             for xF in range(0, subDv):
+#                 for yF in range(0, subDv):
+#                     p = (subDv * xC + xF, subDv * yC + yF)
+#                     val = res2[p]
+#                     if val > maxP[0]:
+#                         maxP = ( val, p )
+#                     elif val < minP[0]:
+#                         minP = ( val, p )
+#             if maxP[0] - minP[0] > 10:
+#                 res3[maxP[1]] = res2[maxP[1]]
+
+#     res3 = toBinImg(res3.copy(), 100)
+#     print(res3)
+#     res3 *= 255
+        
+    
+#     test = np.zeros([
+#                     [  0,  0,  0,  0,  0,  0,  0,  0,  2,  0,  0,  0,  0,  0],
+#                     ])
+    
+#     res2 = ndimage.convolve(im, test)
+      
     sx = ndimage.sobel(im, axis=0, mode='constant')
     sy = ndimage.sobel(im, axis=1, mode='constant')
     sob = np.hypot(sx, sy)
-    
-    im = im > 30
-    print(im.type)
+      
+#     thresh = 31
+      
+    bin0 = toBinImg(im0.copy(), 31)
+    bin1 = toBinImg(res2.copy(), 131)
+      
+    close_bin0 = ndimage.binary_closing(bin0)
+    close_bin1 = ndimage.binary_closing(bin1)
+      
+    close_open_bin0 = ndimage.binary_opening(close_bin0)
+    close_open_bin1 = ndimage.binary_opening(close_bin1)
+ 
     subIms = []
-    subIms.append(im )
-    subIms.append(h)
-    subIms.append(v)
-    subIms.append(sob)
+    subIms.append(im)
     subIms.append(res2)
+    subIms.append(res3)
+#     subIms.append(r1*64 + 128)
+#     subIms.append(r3*64 + 128)
+    subIms.append(res23)
+# #     subIms.append(circleFilter)
+# #     subIms.append(circleTest)
+    subIms.append(255 * bin0 )
+    subIms.append(255 * bin1)
+#     subIms.append(255 * close_bin0)
+#     subIms.append(255 * close_bin1)
+#     subIms.append(255 * close_open_bin0)
+#     subIms.append(255 * close_open_bin1)
+#     subIms.append(res2)
+#     subIms.append(temp)
     
     displayPlots( subIms )
-    
+
+
+'''
+First off, get clean binary image.
+Then create a network of connected white spots.
+    Overlay a larger grid. At each intersection, check for whiteness (in binary img)
+    if white, check immediate surrounding area (on grid) for whiteness.
+    Repeat, unless point has been processed already.
+    If found, create add link to the second spot, to the first one.
+    So points now hold links to all the white spots near them.
+    Remove all points with exactly two links in a relative line through the center.
+        like A-B-C-D --> A-D
+    So now have a list of endpoints and intersections.
+    Go through endpoints.
+        Follow links, in the straightest line you can, until you either hit another endpoint
+        or there are no more links close enough to being in front of you.
+        Save that thing as a line.
+        Remove all links used by the fiber.
+        If what was an intersection now has only two links, remove it like before.
+        If it only has one, add it to the endpoints list.
+        If it has zero, remove it entirely.
+
+'''
+
     
 if __name__ == "__main__":
     cPythonStuff()
