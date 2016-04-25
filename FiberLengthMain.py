@@ -5,16 +5,18 @@ Created on Jul 13, 2015
 
 This will count fibers in an image and measure their lengths.
 
-It requires the installation of python3, PIL, and image_slicer, plus cython, matplotlib, and maybe not iamge_slicer
+It requires the installation of python3, PIL, image_slicer, cython, matplotlib, scikit-image,
+and maybe not iamge_slicer
 on linux, you can just do:
     sudo apt-get install python3
     look up how to install pip, AND install it using python3, not python
     use pip to install PIL
     sudo -H python3 -m pip install image_slicer
-    sudo pip3 install cython
+    sudo -H pip3 install cython
+    sudo -H pip3 install scikit-image
 
 Assumes:
-    
+    A grayscale image with relatively few large bundles of overlapping fibers 
     
 Possible algorithm:
     look for a light (but not red) square (same width as fiber), and look in a circle until you find another light 
@@ -59,14 +61,17 @@ from math import cos, sin, pi, sqrt, ceil, atan
 import datetime
 import os
 from json.decoder import NaN
-from random import randint
 
 
 from scipy import ndimage, misc
 from matplotlib.pyplot import *
+from matplotlib.lines import Line2D
+from skimage.feature import peak_local_max
+from skimage.draw import line_aa
 
 from numpy.core.numeric import ndarray
 from subprocess import call
+from random import randint
 
 # im = Image.open("Images/midSizedTest.jpg")
 # # im = Image.open("Images/smallTest.jpg")
@@ -1459,13 +1464,17 @@ def main(fiberW, imDir, imName):
 #     fiberList.sort()
 
 def plotIm( im ):
-    imshow(im, cmap='Greys_r', interpolation='none', vmin=0, vmax=255,
+    imshow(im, cmap='Greys_r', interpolation='none', origin='lower', vmin=0, vmax=255,
             extent=(0, len(im[0]), 0, len(im))
            )
 
 
-def displayPlots( ims ):
+def displayPlots( ims):
     fig = figure()
+    
+    if len(ims) == 0:
+        show()
+        return
     
     w = int( sqrt(2*len(ims)) )
     h = int(len(ims) / w)
@@ -1475,130 +1484,596 @@ def displayPlots( ims ):
         else:
             h += 1
     
-    i = 1
+    i = 0
     for im in ims:
-#         print(w, h, i)
-        fig.add_subplot(h, w, i)
+        fig.add_subplot(h, w, i + 1)
         plotIm(im)
         i += 1
         
     show()
     
+    
+def checkIfOnFiber(im, boolFilter, x0, y0):
+    # boolFilter is something like [false false true true true rue false false]
+    # and so his checks if there is a threshold below all/most of the true values and below all/most of the false ones
+    # naive implementation:
+    #     create list of false values and true values
+    #     compare lowest of trues to highest of false
+    #         maybe how many trues are less than the highest false, and vice versa
+    #     if enough values are good, say the point is good.
+    # 
+    # 
+    
+    # x0 and y0 are at the center
+    x0 -= len(boolFilter) / 2
+    y0 -= len(boolFilter[0]) / 2
+    
+    if x0 < 0 or y0 < 0 or x0 + len(boolFilter) >= len(im) or y0 + len(boolFilter) >= len(im[0]):
+        return False
+    
+    section = im[x0:x0+len(boolFilter), y0:y0+len(boolFilter[0])]
+    upper = section * boolFilter
+#     upper -= ndarray.min(upper)
+#     upper /= (ndarray.max(upper)/255)
+#     upper = upper.astype(int)
+    
+    lower = section * -1 * (boolFilter)
+#     lower -= ndarray.min(lower)
+#     lower /= (ndarray.max(lower)/255)
+#     lower = lower.astype(int)
+    print(upper)
+    print(lower)
+    print(boolFilter)
+    print(-1 * (boolFilter))
+    return upper, lower
+
+
+def findPath(im, p1, p2):
+    return True
+    
+    pathExists = False
+    
+    x_coords, y_coords = zip(*[p1, p2])
+    A = np.vstack([x_coords, np.ones(len(x_coords))]).T
+    m, b = np.lstsq(A, y_coords)[0]
+    
+    return pathExists
+
+
+ 
+# def drawLine(im, p1, p2):
+     
+ 
+# def findFibersWeb(im):
+#      
+#              
+#     '''
+#     im is a binary image
+#     '''
+#     im = im.copy()
+#      
+#      
+#     l0 = np.array([(48, 124), (56, 103), (65, 121), (73, 140), (79, 117)])
+#      
+#     l = []
+#     for p in l0:
+#         l.append(Point(tuple(p[:])))
+#         im[ tuple(p[:]) ] = [1, 0, 0]
+#      
+#     for p1 in l:
+#          
+#         for p2 in l:
+#             if findPath(im, p1, p2):
+#                 Point.link(p1, p2)
+#         if 
+#          
+#          
+#      
+# #     im[ im > 0 ] = 1
+#     displayPlots([255*im])
+#     return 
+    
+# def getDistribution(im):
+#     points = []
+#     
+#     
+#     return points
+
+
+def getCol(depth):
+    if depth % 3 == 0:
+        return [1, 0, 0]
+    elif depth % 3 == 1:
+        return [0, 1, 0]
+    else:
+        return [0, 0, 1]
+        
+    
+def splitDraw(im, out, x1, x2, y1, y2, depth):
+#     print(((2 - depth)*"\t"), "Split,", x1, x2, y1, y2, depth)
+    if (depth == 0) or (y1 == y2) or (x1 == x2):
+        return
+    depth -= 1
+    region = im[y1:y2, x1:x2]
+#     print(region)
+#     print(len(im), len(im[0]), y2-y1, x2-x1, ndarray.mean(region))
+    uniformity = np.abs(ndarray.mean(region)*2 - 1)
+    print("U:", uniformity)
+    if uniformity > 0.97:
+        return
+    yC, xC = np.array(ndimage.measurements.center_of_mass(region)).astype(int)
+#     print(yC, xC)
+    for x in range(x1, x2):
+        out[y1 + yC][x] = getCol(depth)
+    for y in range(y1, y2):
+        out[y][x1 + xC] = getCol(depth)
+#     print((1 - depth)*"\t_", x1, xC, x2, y1, yC, y2)
+    splitDraw(im, out, x1, x1 + xC, y1, y1 + yC, depth )
+    splitDraw(im, out, x1 + xC, x2, y1, y1 + yC, depth )
+    splitDraw(im, out, x1, x1 + xC, y1 + yC, y2, depth )
+    splitDraw(im, out, x1 + xC, x2, y1 + yC, y2, depth )
+    return  
+
+
+def split(im, out, x1, x2, y1, y2, depth):
+#     print(((2 - depth)*"\t"), "Split,", x1, x2, y1, y2, depth)
+    if depth == 0:
+#         out[(y1 + y2)/2, (x1 + x2)/2] = getCol(depth)
+        return
+    if (y1 == y2) or (x1 == x2):
+        return
+    depth -= 1
+    region = im[y1:y2, x1:x2]
+#     print(len(im), len(im[0]), y2-y1, x2-x1, ndarray.mean(region))
+    uniformity = np.abs(ndarray.mean(region)*2 - 1)
+    print("U:", uniformity)
+    if uniformity > 0.95:
+        return
+    yC, xC = np.array(ndimage.measurements.center_of_mass(region)).astype(int)
+    print((1 - depth)*"\t_", x1, xC, x2, y1, yC, y2)
+    out[y1 + yC, x1 + xC] = getCol(depth)
+    split(im, out, x1, x1 + xC, y1, y1 + yC, depth )
+    split(im, out, x1 + xC, x2, y1, y1 + yC, depth )
+    split(im, out, x1, x1 + xC, y1 + yC, y2, depth )
+    split(im, out, x1 + xC, x2, y1 + yC, y2, depth )
+    return  
+
+class Graph(dict):
+    
+    class Point:
+        def __init__(self, p0):
+            self.p = p0
+            self.links = []
+            self.end = False
+            self.visited = False
+             
+        def getStatus(self):
+            return len(self.links)
+        
+        def printLinks(self, prefix):
+            for p0 in self.links:
+                print(prefix, p0.p)
+             
+        @staticmethod
+        def linked(p1, p2):
+            return p2 in p1.links
+             
+        @staticmethod
+        def link(p1, p2):
+            if not Graph.Point.linked(p1, p2):
+                p1.links.append(p2)
+                p2.links.append(p1)
+             
+        @staticmethod
+        def unlink(p1, p2):
+            p1.links.remove(p2)
+            p2.links.remove(p1)
+             
+        @staticmethod
+        def cutOut(p):
+            if len(p.links) != 2:
+                # happens when an isolated cycle is reduced down from 3 points to 2
+                # because removing one doesn't link the remaining two together again,
+                # because they're already linked. SO they're now linked just to each
+                # other - and therefore only have one link each.
+                # should rarely happen, since linked points must be close to co-linear 
+                return
+            
+            # to be called on points with only two links, in a line
+            p1 = p.links[0]
+            p2 = p.links[1]
+            Graph.Point.unlink(p1, p)
+            Graph.Point.unlink(p, p2)
+            Graph.Point.link(p1, p2)
+    
+    def __init__(self, im, points, maxDist, fiberW):
+        # for each point, look in a circle until you hit another point or reach the maximum
+        # link distance. 
+        radiusList = np.arange(1.0 , maxDist, 0.8)
+    
+        self.g = Graph.toPointDict(points)
+        self.im = im
+        self.fw = fiberW
+        
+        for p0 in self.g:
+            for t0 in range(0, 360, 6):
+                t = t0*pi/180
+                for r in radiusList:
+                    p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
+                         int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
+    #                 print("\t", p)
+                    if (p != p0) and (p in points):
+                        if not (Graph.Point.linked(self.g[p], self.g[p0])):
+                            if findPath(im, p0, p):
+                                Graph.Point.link(self.g[p], self.g[p0])
+                        else:
+                            break
+    #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
+    #                  int(p0[1] + (radiusList[-1] * np.array([cos(t), sin(t)]))[1]) )
+                    
+    #                 im[p] = 255
+    #         displayPlots([im])
+    #         return        
+        self.prune()
+        self.endpoints = self.getEndpoints()
+    
+    
+    @staticmethod
+    def unlinkChain(self, l ):
+        for i in range(0, len(l) - 1):
+            p1 = l[i]
+            p2 = l[i + 1]
+        Graph.Point.unlink(p1, p2)
+    
+    @staticmethod
+    def toPointDict(l):
+        d = {}
+        for p in l:
+            d[p] = Graph.Point(p)
+        return d
+    
+    def getEndpoints(self, g):
+        endPoints = []
+        for p in g:
+            if len(g[p].links) == 1:
+                endPoints.append(g[p])
+    
+    def traceFibers(self, minL):
+        
+        for p in self.g.copy():
+            if not (p in self.g):
+                continue
+            
+            fiberGood = False
+            l = []
+            
+            raise NotImplemented
+        
+            l.append(self.g[p])
+            
+            f = Fiber(l, self.fw)
+            
+            if fiberGood:
+                # this seems slow, having to make a mini graph every fiber
+                fGraph = Graph(f.pnts)
+                self.unlinkChain( l )
+                fGraph.prune()
+            else:
+                ()
+                # Maybe?
+    #             unlinkFiber( l )
+    
+    def prune(self):
+        pToDelete = []
+        pToCut = []
+        for p0 in self.g:
+            p = self.g[p0]
+            if len(p.links) < 1:
+                pToDelete.append(p.p)
+                
+            inLine = True
+            if (len(p.links) == 2) and inLine:
+                pToCut.append(p.p)
+                
+        for p in pToDelete:
+            self.g[p].visited = True
+            if self.g[p] in self.endPoints:
+                self.endPoints.remove(self.g[p])
+            del self.g[p]
+            
+    #     print()
+            
+        for p in pToCut:
+            print("....", p)
+            self.g[p].printLinks(",,,,")
+            Graph.Point.cutOut(self.g[p])
+            del self.g[p]
+            
+    def drawGraph(self, im):
+    #     for p in g:
+    #         g[p].visited = False
+        
+        # DFS
+        for p1 in self.g:
+            for p2 in self.g[p1].links:
+                rr, cc, val = line_aa(*p1 + p2.p)
+                im[rr, cc] = 55  + randint(0, 1)
+    #             if not g[p2].visited:
+    #                 
+    #     for p in g:
+    #         g[p].visited = False
+            
+
+# def unlinkFiber( l ):
+#     for i in range(0, len(l) - 1):
+#         p1 = l[i]
+#         p2 = l[i + 1]
+#         Point.unlink(p1, p2)
+# 
+# def getEndpoints(g):
+#     endPoints = []
+#     for p in g:
+#         if len(g[p].links) == 1:
+#             endPoints.append(g[p])
+# 
+# def traceFibers(g, minL):
+#     endPoints = getEndpoints(g)
+#     
+#     for p in g.copy():
+#         if not (p in g):
+#             continue
+#         
+#         fiberGood = False
+#         l = []
+#         
+#         l.append(g[p])
+#         
+#         
+#         
+#         if fiberGood:
+#             # this seems slow, having to make a mini graph every fiber
+#             fGraph = toPointDict(f.pnts)
+#             unlinkFiber( l )
+#             pruneGraph(fGraph, endPoints)
+#         else:
+#             ()
+#             # Maybe?
+# #             unlinkFiber( l )
+# 
+# def createGraph(im, points, maxDist):
+#     # for each point, look in a circle until you hit another point or reach the maximum
+#     # link distance. 
+#     radiusList = np.arange(1.0 , maxDist, 0.8)
+# 
+#     graph = toPointDict(points)
+#     
+#     for p0 in graph:
+#         for t0 in range(0, 360, 6):
+#             t = t0*pi/180
+#             for r in radiusList:
+#                 p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
+#                      int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
+# #                 print("\t", p)
+#                 if (p != p0) and (p in points):
+#                     if not (Point.linked(graph[p], graph[p0])):
+#                         if findPath(im, p0, p):
+#                             Point.link(graph[p], graph[p0])
+#                     else:
+#                         break
+# #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
+# #                  int(p0[1] + (radiusList[-1] * np.array([cos(t), sin(t)]))[1]) )
+#                 
+# #                 im[p] = 255
+# #         displayPlots([im])
+# #         return        
+# #     pruneGraph( graph )
+# 
+#     return graph
+# 
+#     
+# def pruneGraph( graph, endPoints ):
+#     pToDelete = []
+#     pToCut = []
+#     for p0 in graph:
+#         p = graph[p0]
+#         if len(p.links) < 1:
+#             pToDelete.append(p.p)
+#             
+#         inLine = True
+#         if (len(p.links) == 2) and inLine:
+#             pToCut.append(p.p)
+#             
+#     for p in pToDelete:
+#         graph[p].visited = True
+#         if graph[p] in endPoints:
+#             endPoints.remove(graph[p])
+#         del graph[p]
+#         
+# #     print()
+#         
+#     for p in pToCut:
+#         print("....", p)
+#         graph[p].printLinks(",,,,")
+#         Point.cutOut(graph[p])
+#         del graph[p]
+#         
+# def drawGraph(im, g):
+# #     for p in g:
+# #         g[p].visited = False
+#     
+#     # DFS
+#     for p1 in g:
+#         for p2 in g[p1].links:
+#             rr, cc, val = line_aa(*p1 + p2.p)
+#             im[rr, cc] = 55  + randint(0, 1)
+# #             if not g[p2].visited:
+# #                 
+# #     for p in g:
+# #         g[p].visited = False
+#         
+
+
+
+
+def tempGraphStuff(im, l):
+#     l = [(4, 4), (5, 5), (13, 5), (5, 15), (15, 15), (10, 10), (20, 20), (5, 28)]
+#     im = np.zeros((40, 40))
+    im0 = im.copy()
+
+    g = Graph(im, l, 2*sqrt(5))
+    
+    
+    g.drawGraph(im0)
+    for p in g:
+        im0[p] = 255
+        print(g[p].p, [p0.p for p0 in g[p].links], im0[p])
+        
+    print("\n")
+    g.prune()
+ 
+    g.drawGraph(im)
+    for p in g:
+        im[p] = 255
+        print(g[p].p, [p0.p for p0 in g[p].links])
+ 
+    
+    for p in g:
+        im[p] = 255
+        print(g[p].p, [p0.p for p0 in g[p].links])
+    
+    displayPlots([im0, im])
+    return
+
+def filterImage( im0, fw):
+#     im0 = ndimage.gaussian_filter(im.copy(), sigma=2)
+    blankIm = np.zeros((len(im0), len(im0[0])))
+
+    fH = 5 * horizEdgeArray(fw, 1)
+    fV = 5 * vertEdgeArray(fw, 1)
+     
+    res0 = pickyConvolvement(im0.astype(int), fH, fV)
+    res0[res0 < 0] = 0
+    res0[res0 > 255] = 255
+    res1 = 256*toBinImg(res0, 120)
+     
+    im = toBinImg(res1, 200)
+    
+    distance = ndimage.distance_transform_edt(im)
+    
+    local_maxi = peak_local_max(distance, indices=False, footprint=np.ones((3, 3)), labels=im)
+    
+    f0 = np.zeros((3,3))
+    f0[0][0] = 1
+    f0[2][0] = 1
+    f0[1][2] = 1
+    f1 = np.rot90(f0)
+    f2 = np.rot90(f1)
+    f3 = np.rot90(f2)
+    f4 = ndimage.generate_binary_structure(2, 1).astype(int)
+    f4[1,1] = 0
+    f4[1] *= 2
+
+    temp0 = local_maxi - ndimage.convolve(local_maxi, f0)//2
+    temp1 = temp0 - ndimage.convolve(local_maxi, f1)//2
+    temp2 = temp1 - ndimage.convolve(local_maxi, f2)//2
+    temp3 = temp2 - ndimage.convolve(local_maxi, f3)//2
+    final = temp3 - ((ndimage.convolve(local_maxi, f4)%4) + 1 )//4
+#     displayPlots([ im0, local_maxi * 64, temp3*64, final*64 ])
+    final[ final < 0 ] = 0
+    maxPoints = np.nonzero(final)
+     
+    maxPoints = list(zip(maxPoints[0], maxPoints[1]))
+    print(maxPoints)
+    tempGraphStuff(blankIm, maxPoints)
+    
+    return final
+
 from quickFuncs import *
 def cPythonStuff():
+    
     call(["python3", "setup.py", "build_ext", "--inplace"])
+    im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
+#     im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
+#     im0 = mergeIms(im0, im1)
+#     im0 = fiberBox((40, 20), (10, 15), 4*pi/7, 5)
+#     im = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 130), fiberBox((400, 200), (300, 150), 8*pi/7, 130) )
+#     im0 = np.array( Image.open("Images/smallTest2.jpg") )
+
+    filterImage(im0, 5)
     
-     
-#     w = 100
-#     im = np.zeros(((int)(1.5 * w), (int)(1.5 * w)))
-#     for x in range(0, len(im)):
-#         for y in range(0, len(im[0])):
-#             im[y][x] =  255 - int(200 * (sqrt(sqrt(abs((x - len(im)/2)/len(im)))) + sin(20*y/(pi*len(im[0]))))  )
+    return
+#     x, y = np.indices((5, 5))
+#     x1, y1, = 2, 2
+#     r1 = 1.2
+#     mask_circle = (x - x1) ** 2 + (y - y1) ** 2 < r1 ** 2
+#     print(mask_circle)
+#     local_maxi = peak_local_max(distance, indices=False, footprint=mask_circle, labels=im)
     
-#     dimensions = (300, 200)
+#     im1 = toBinImg(distance.copy(), 2)
+
+#     findFibersWeb(im)
+    
+    
+#     l = [im0, 255*im, 255*(distance/ndarray.max(distance)), 255*(im1/ndarray.max(im1))]
+#     displayPlots(l[1::2])
+#     displayPlots([im0])
+#     pyplot.imshow(255*out1)
+#     show()
+    
+#     print(out)
+    return
+    
+    
 #     im1 = mergeIms(fiberBox(dimensions, (40, 80), 7*pi/8, 10), fiberBox(dimensions, (180, 130), pi/4, 10))
 #     im2 = mergeIms(fiberBox(dimensions, (150, 70), 0*pi/8, 10), fiberBox(dimensions, (20, 180), 5*pi/8, 10))
 #     im3 = mergeIms(im1, fiberBox(dimensions, (150, 70), 4*pi/8, 10))
 #     im = mergeIms(im2, im3)
-    
+#     temp = np.zeros(5)
+#     temp[1] = 1
+#     temp[2] = 2
+#     temp[3] = 1
+#     indx = temp >= 1 
+#     print(temp, ndarray.sum(indx))
+#     raise Exception("\nsome way to determine if, when a threshhold is applied to a given square \
+# as it is examined,\n the resulting boolean matrix is close enough to what it \
+# should be.")
+#     
+#     return
+
     im = np.array( Image.open("Images/smallTest2.jpg") )
     im0 = im.copy()
-    
-#     im = ndimage.gaussian_filter(im, sigma=2)
-    im = ndimage.gaussian_filter(im, sigma=5)
-    
-#     circleFilter = circleArray( 11 )
-#     circleTest = ndimage.convolve(im, circleFilter)
-#     circleFilter *= 128
-#     circleFilter += 256
-    
-#     im -= ndarray.min(im)
-#     im *= 255/ndarray.max(im)
-    
-    fw = 4
 
-    fThickness = 1
-      
-    f1 = horizEdgeArray(fw, fThickness)
-    f2 = vertEdgeArray(fw, fThickness)
-      
-    h = ndimage.convolve(im, f1)
-    v = ndimage.convolve(im, f2)
+    im = ndimage.gaussian_filter(im.copy(), sigma=2)
     
-    r1 = edgeArray(fw, 45, fThickness)
-    r3 = edgeArray(fw, 135, fThickness)
-    print(fw, len(r1))
-#     print(f1)
-#     print(im)
-#     displayPlots( [im, f1] )
-#     return
-    res2 = pickyConvolvement(im, f1, f2)
-    res3 = pickyConvolvement(im, r1, r3)
-    res23 = mergeIms(res2, res3)
     
-#     res3 = np.zeros((len(res2), len(res2[0])))
-#     
-#     subDv = 3
-#     for xC in range(0, int((len(res2)-1)/subDv)):
-#         for yC in range(0, int((len(res2[0])-1)/subDv)):
-#             maxP = (-100, (0,0))
-#             minP = ( 300, (0,0))
-#             for xF in range(0, subDv):
-#                 for yF in range(0, subDv):
-#                     p = (subDv * xC + xF, subDv * yC + yF)
-#                     val = res2[p]
-#                     if val > maxP[0]:
-#                         maxP = ( val, p )
-#                     elif val < minP[0]:
-#                         minP = ( val, p )
-#             if maxP[0] - minP[0] > 10:
-#                 res3[maxP[1]] = res2[maxP[1]]
-
-#     res3 = toBinImg(res3.copy(), 100)
-#     print(res3)
-#     res3 *= 255
-        
+    fw = 10
+    fH = 5 * horizEdgeArray(fw, 1)
+    fV = 5 * vertEdgeArray(fw, 1)
     
-#     test = np.zeros([
-#                     [  0,  0,  0,  0,  0,  0,  0,  0,  2,  0,  0,  0,  0,  0],
-#                     ])
+    res0 = pickyConvolvement(im.astype(int), fH, fV)
+    res0[res0 < 0] = 0
+    res0[res0 > 255] = 255
+    res0 = 256*toBinImg(res0, 120)
+    res1 = ndimage.median_filter(res0, size=8)
+#     findFibersWeb()
+    displayPlots([res0, res1])
+    return
     
-#     res2 = ndimage.convolve(im, test)
       
-    sx = ndimage.sobel(im, axis=0, mode='constant')
-    sy = ndimage.sobel(im, axis=1, mode='constant')
-    sob = np.hypot(sx, sy)
-      
-#     thresh = 31
-      
-    bin0 = toBinImg(im0.copy(), 31)
-    bin1 = toBinImg(res2.copy(), 131)
-      
-    close_bin0 = ndimage.binary_closing(bin0)
-    close_bin1 = ndimage.binary_closing(bin1)
-      
-    close_open_bin0 = ndimage.binary_opening(close_bin0)
-    close_open_bin1 = ndimage.binary_opening(close_bin1)
- 
-    subIms = []
-    subIms.append(im)
-    subIms.append(res2)
-    subIms.append(res3)
-#     subIms.append(r1*64 + 128)
-#     subIms.append(r3*64 + 128)
-    subIms.append(res23)
-# #     subIms.append(circleFilter)
-# #     subIms.append(circleTest)
-    subIms.append(255 * bin0 )
-    subIms.append(255 * bin1)
-#     subIms.append(255 * close_bin0)
-#     subIms.append(255 * close_bin1)
-#     subIms.append(255 * close_open_bin0)
-#     subIms.append(255 * close_open_bin1)
-#     subIms.append(res2)
-#     subIms.append(temp)
-    
-    displayPlots( subIms )
+#     sx = ndimage.sobel(im, axis=0, mode='constant')
+#     sy = ndimage.sobel(im, axis=1, mode='constant')
+#     sob = np.hypot(sx, sy)
+#       
+#     bin0 = toBinImg(im0.copy(), 31)
+#     bin1 = toBinImg(res2.copy(), 131)
+#       
+#     close_bin0 = ndimage.binary_closing(bin0)
+#     close_bin1 = ndimage.binary_closing(bin1)
+#       
+#     close_open_bin0 = ndimage.binary_opening(close_bin0)
+#     close_open_bin1 = ndimage.binary_opening(close_bin1)
+#     subIms = [bin0, bin1]
+#     displayPlots( subIms )
 
 
 '''
