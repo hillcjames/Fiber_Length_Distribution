@@ -1691,11 +1691,14 @@ class Graph(dict):
         # link distance. 
         radiusList = np.arange(1.0 , maxDist, 0.8)
     
-        self.g = Graph.toPointDict(points)
+        for p in points:
+            self[p] = Graph.Point(p)
+            
         self.im = im
         self.fw = fiberW
+        self.endPoints = []
         
-        for p0 in self.g:
+        for p0 in self:
             for t0 in range(0, 360, 6):
                 t = t0*pi/180
                 for r in radiusList:
@@ -1703,9 +1706,9 @@ class Graph(dict):
                          int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
     #                 print("\t", p)
                     if (p != p0) and (p in points):
-                        if not (Graph.Point.linked(self.g[p], self.g[p0])):
+                        if not (Graph.Point.linked(self[p], self[p0])):
                             if findPath(im, p0, p):
-                                Graph.Point.link(self.g[p], self.g[p0])
+                                Graph.Point.link(self[p], self[p0])
                         else:
                             break
     #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
@@ -1713,9 +1716,10 @@ class Graph(dict):
                     
     #                 im[p] = 255
     #         displayPlots([im])
-    #         return        
-        self.prune()
-        self.endpoints = self.getEndpoints()
+    #         return
+        
+#         self.prune()
+        self.getEndpoints()
     
     
     @staticmethod
@@ -1732,16 +1736,16 @@ class Graph(dict):
             d[p] = Graph.Point(p)
         return d
     
-    def getEndpoints(self, g):
-        endPoints = []
-        for p in g:
-            if len(g[p].links) == 1:
-                endPoints.append(g[p])
+    def getEndpoints(self):
+        self.endPoints = []
+        for p in self:
+            if len(self[p].links) == 1:
+                self.endPoints.append(self[p])
     
     def traceFibers(self, minL):
         
-        for p in self.g.copy():
-            if not (p in self.g):
+        for p in self.copy():
+            if not (p in self):
                 continue
             
             fiberGood = False
@@ -1749,7 +1753,7 @@ class Graph(dict):
             
             raise NotImplemented
         
-            l.append(self.g[p])
+            l.append(self[p])
             
             f = Fiber(l, self.fw)
             
@@ -1766,8 +1770,8 @@ class Graph(dict):
     def prune(self):
         pToDelete = []
         pToCut = []
-        for p0 in self.g:
-            p = self.g[p0]
+        for p0 in self:
+            p = self[p0]
             if len(p.links) < 1:
                 pToDelete.append(p.p)
                 
@@ -1776,26 +1780,23 @@ class Graph(dict):
                 pToCut.append(p.p)
                 
         for p in pToDelete:
-            self.g[p].visited = True
-            if self.g[p] in self.endPoints:
-                self.endPoints.remove(self.g[p])
-            del self.g[p]
-            
-    #     print()
+            self[p].visited = True
+            if self[p] in self.endPoints:
+                self.endPoints.remove(self[p])
+            del self[p]
             
         for p in pToCut:
             print("....", p)
-            self.g[p].printLinks(",,,,")
-            Graph.Point.cutOut(self.g[p])
-            del self.g[p]
+            self[p].printLinks(",,,,")
+            Graph.Point.cutOut(self[p])
+            del self[p]
             
     def drawGraph(self, im):
     #     for p in g:
     #         g[p].visited = False
         
-        # DFS
-        for p1 in self.g:
-            for p2 in self.g[p1].links:
+        for p1 in self:
+            for p2 in self[p1].links:
                 rr, cc, val = line_aa(*p1 + p2.p)
                 im[rr, cc] = 55  + randint(0, 1)
     #             if not g[p2].visited:
@@ -1915,12 +1916,12 @@ class Graph(dict):
 
 
 
-def tempGraphStuff(im, l):
+def tempGraphStuff(im, l, fw):
 #     l = [(4, 4), (5, 5), (13, 5), (5, 15), (15, 15), (10, 10), (20, 20), (5, 28)]
 #     im = np.zeros((40, 40))
     im0 = im.copy()
 
-    g = Graph(im, l, 2*sqrt(5))
+    g = Graph(im, l, sqrt(5), fw)
     
     
     g.drawGraph(im0)
@@ -1973,33 +1974,33 @@ def filterImage( im0, fw):
     f4[1,1] = 0
     f4[1] *= 2
 
-    temp0 = local_maxi - ndimage.convolve(local_maxi, f0)//2
-    temp1 = temp0 - ndimage.convolve(local_maxi, f1)//2
-    temp2 = temp1 - ndimage.convolve(local_maxi, f2)//2
-    temp3 = temp2 - ndimage.convolve(local_maxi, f3)//2
-    final = temp3 - ((ndimage.convolve(local_maxi, f4)%4) + 1 )//4
+    temp0 = toBinImg(local_maxi - ndimage.convolve(local_maxi, f0)//2)
+    temp1 = toBinImg(temp0 - ndimage.convolve(temp0, f1)//2)
+    temp2 = toBinImg(temp1 - ndimage.convolve(temp1, f2)//2)
+    temp3 = toBinImg(temp2 - ndimage.convolve(temp2, f3)//2)
+    final = toBinImg(temp3 - ((ndimage.convolve(temp3, f4)%4) + 1 )//4)
 #     displayPlots([ im0, local_maxi * 64, temp3*64, final*64 ])
-    final[ final < 0 ] = 0
+
     maxPoints = np.nonzero(final)
      
     maxPoints = list(zip(maxPoints[0], maxPoints[1]))
-    print(maxPoints)
-    tempGraphStuff(blankIm, maxPoints)
-    
+
+    tempGraphStuff(blankIm, maxPoints, fw)
+#     displayPlots([temp1*255, temp2*255, temp3*255, final*255])
     return final
 
 from quickFuncs import *
 def cPythonStuff():
     
     call(["python3", "setup.py", "build_ext", "--inplace"])
-    im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
+#     im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
 #     im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
 #     im0 = mergeIms(im0, im1)
 #     im0 = fiberBox((40, 20), (10, 15), 4*pi/7, 5)
-#     im = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 130), fiberBox((400, 200), (300, 150), 8*pi/7, 130) )
+    im = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 10), fiberBox((400, 200), (300, 150), 3*pi/9, 10) )
 #     im0 = np.array( Image.open("Images/smallTest2.jpg") )
 
-    filterImage(im0, 5)
+    filterImage(im, 10)
     
     return
 #     x, y = np.indices((5, 5))

@@ -282,7 +282,7 @@ def pickyConvolvement( im, f1, f2 ):
     return tempIm
 #     return 255 * tempIm / tempIm.max()
 
-def toBinImg( im, thresh ):
+def toBinImg( im, thresh=1 ):
     temp = im.copy()
     ind = im < thresh
     ind0 = im >= thresh
