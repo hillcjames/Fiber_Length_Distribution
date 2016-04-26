@@ -61,6 +61,7 @@ from math import cos, sin, pi, sqrt, ceil, atan
 import datetime
 import os
 from json.decoder import NaN
+import timeit
 
 
 from scipy import ndimage, misc
@@ -72,6 +73,7 @@ from skimage.draw import line_aa
 from numpy.core.numeric import ndarray
 from subprocess import call
 from random import randint
+from posix import unlink
 
 # im = Image.open("Images/midSizedTest.jpg")
 # # im = Image.open("Images/smallTest.jpg")
@@ -1662,6 +1664,7 @@ class Graph(dict):
         def link(p1, p2):
             if not Graph.Point.linked(p1, p2):
                 p1.links.append(p2)
+            if not Graph.Point.linked(p2, p1):
                 p2.links.append(p1)
              
         @staticmethod
@@ -1685,32 +1688,71 @@ class Graph(dict):
             Graph.Point.unlink(p1, p)
             Graph.Point.unlink(p, p2)
             Graph.Point.link(p1, p2)
+            
+#         def combine(self, p1, p2):
+#             # combines the links in p2 into p1
+#             for p in p2.links:
+#                 if not p in p1.links:
+#                     Graph.Point.link(p1, p)
+#                 Graph.Point.unlink(p, p2)
     
     def __init__(self, im, points, maxDist, fiberW):
         # for each point, look in a circle until you hit another point or reach the maximum
         # link distance. 
         radiusList = np.arange(1.0 , maxDist, 0.8)
-    
+
         for p in points:
             self[p] = Graph.Point(p)
             
         self.im = im
         self.fw = fiberW
-        self.endPoints = []
-        
+        self.endPoints = {}
+        raise Exception("test on tiny image with 45 degree line to see why it links so many together")
+    
+        i = 0
         for p0 in self:
+            if i%100 == 0:
+                print(i, len(points), "building graph")
+            i+=1
+#             if i == 1000:
+#                 break
             for t0 in range(0, 360, 6):
                 t = t0*pi/180
                 for r in radiusList:
                     p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
                          int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
     #                 print("\t", p)
-                    if (p != p0) and (p in points):
+                    if (p != p0) and (p in self):
                         if not (Graph.Point.linked(self[p], self[p0])):
-                            if findPath(im, p0, p):
+                            notCycle = True
+                              
+                            for p1 in self[p0].links:
+                                # if the points are adjacent, l/r/u/d.
+#                                 print(p0, p, p1.p, abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]))
+                                if abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]) == 1:
+                                    notCycle = False
+                                      
+                              
+                            if findPath(im, p0, p) and notCycle:
                                 Graph.Point.link(self[p], self[p0])
+                                break
                         else:
                             break
+
+
+#             for t0 in range(0, 360, 6):
+#                 t = t0*pi/180
+#                 for r in radiusList:
+#                     p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
+#                          int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
+#     #                 print("\t", p)
+#                     if Graph.temp1(im, p, p0, points, self):
+#                         break
+            
+
+
+
+
     #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
     #                  int(p0[1] + (radiusList[-1] * np.array([cos(t), sin(t)]))[1]) )
                     
@@ -1721,13 +1763,28 @@ class Graph(dict):
 #         self.prune()
         self.getEndpoints()
     
-    
-    @staticmethod
-    def unlinkChain(self, l ):
-        for i in range(0, len(l) - 1):
-            p1 = l[i]
-            p2 = l[i + 1]
-        Graph.Point.unlink(p1, p2)
+#     @staticmethod
+#     def temp1(im, p, p0, points, g):
+#         if (p != p0) and (p in g):
+#             if not (Graph.Point.linked(g[p], g[p0])):
+#                 
+#                 notCycle = Graph.temp2(p, p0, g)         
+#                  
+#                 if findPath(im, p0, p) and notCycle:
+#                     Graph.Point.link(g[p], g[p0])
+#             else:
+#                 return True
+#     
+#     @staticmethod
+#     def temp2(p, p0, g):
+#         notCycle = True
+#                  
+#         for p1 in g[p0].links:
+#             # if the points are adjacent, l/r/u/d.
+# #                                 print(p0, p, p1.p, abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]))
+#             if abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]) == 1:
+#                 notCycle = False
+#         return notCycle
     
     @staticmethod
     def toPointDict(l):
@@ -1737,10 +1794,10 @@ class Graph(dict):
         return d
     
     def getEndpoints(self):
-        self.endPoints = []
+        self.endPoints = {}
         for p in self:
             if len(self[p].links) == 1:
-                self.endPoints.append(self[p])
+                self.endPoints[p] = self[p]
     
     def traceFibers(self, minL):
         
@@ -1786,10 +1843,11 @@ class Graph(dict):
             del self[p]
             
         for p in pToCut:
-            print("....", p)
-            self[p].printLinks(",,,,")
-            Graph.Point.cutOut(self[p])
-            del self[p]
+            if (len(self[p].links) == 2):
+#                 print("....", p, len(self[p].links))
+#                 self[p].printLinks(",,,,")
+                Graph.Point.cutOut(self[p])
+                del self[p]
             
     def drawGraph(self, im):
     #     for p in g:
@@ -1803,7 +1861,32 @@ class Graph(dict):
     #                 
     #     for p in g:
     #         g[p].visited = False
+    
+    def findFibers(self, fiberW):
+        fiberList = []
+        
+        chains = []
+        for e in self.endPoints.copy():
+            if not e in self.endPoints:
+                continue
             
+            chain = []
+            
+            Graph.unlinkChain(chain)
+            self.prune()
+            
+            f = Fiber(chain, fiberW)
+            if f.length > 10:
+                fiberList.append(f)
+        return fiberList
+    
+    @staticmethod
+    def unlinkChain( l ):
+        for i in range(0, len(l) - 1):
+            p1 = l[i]
+            p2 = l[i + 1]
+        Graph.Point.unlink(p1, p2)
+    
 
 # def unlinkFiber( l ):
 #     for i in range(0, len(l) - 1):
@@ -1917,11 +2000,15 @@ class Graph(dict):
 
 
 def tempGraphStuff(im, l, fw):
+#     fw = 2
 #     l = [(4, 4), (5, 5), (13, 5), (5, 15), (15, 15), (10, 10), (20, 20), (5, 28)]
-#     im = np.zeros((40, 40))
+#     l = [(4, 4), (6, 4), (6, 5), (3, 2), (8, 5), (9, 7)]
+#     im = np.zeros((10, 10))
     im0 = im.copy()
-
-    g = Graph(im, l, sqrt(5), fw)
+    print("About to create graph")
+    g = Graph(im, l, 1.5*sqrt(5), fw)
+    print("...Done")
+#     return
     
     
     g.drawGraph(im0)
@@ -1930,20 +2017,33 @@ def tempGraphStuff(im, l, fw):
         print(g[p].p, [p0.p for p0 in g[p].links], im0[p])
         
     print("\n")
+    # you need two, since I broke small cycles in the init,
+    # so what would have been
+    #     1-{2}, 2-{1, 3, 4}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+    # is now
+    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+    # which yields after the first prune
+    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+    # which yields
+    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+    # which yields
+    print("About to prune")
     g.prune()
+    print("About to prune again")
+    g.prune()
+    print("...Done")
  
     g.drawGraph(im)
     for p in g:
         im[p] = 255
         print(g[p].p, [p0.p for p0 in g[p].links])
- 
     
-    for p in g:
-        im[p] = 255
-        print(g[p].p, [p0.p for p0 in g[p].links])
-    
-    displayPlots([im0, im])
+    displayPlots([im])
     return
+
+# when traversing, give nodes a value that is unique for every fiber trace.
+# to act as a 'visited' flag, without needing to reset all flags between fiber traces.
+
 
 def filterImage( im0, fw):
 #     im0 = ndimage.gaussian_filter(im.copy(), sigma=2)
@@ -1979,28 +2079,29 @@ def filterImage( im0, fw):
     temp2 = toBinImg(temp1 - ndimage.convolve(temp1, f2)//2)
     temp3 = toBinImg(temp2 - ndimage.convolve(temp2, f3)//2)
     final = toBinImg(temp3 - ((ndimage.convolve(temp3, f4)%4) + 1 )//4)
-#     displayPlots([ im0, local_maxi * 64, temp3*64, final*64 ])
+    ims = [ im0, local_maxi * 64, temp3*64, final*64 ]
+#     displayPlots(ims[0::3])
 
     maxPoints = np.nonzero(final)
      
     maxPoints = list(zip(maxPoints[0], maxPoints[1]))
 
     tempGraphStuff(blankIm, maxPoints, fw)
-#     displayPlots([temp1*255, temp2*255, temp3*255, final*255])
     return final
 
 from quickFuncs import *
 def cPythonStuff():
     
     call(["python3", "setup.py", "build_ext", "--inplace"])
-#     im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
-#     im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
+    im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
+    im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
 #     im0 = mergeIms(im0, im1)
 #     im0 = fiberBox((40, 20), (10, 15), 4*pi/7, 5)
-    im = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 10), fiberBox((400, 200), (300, 150), 3*pi/9, 10) )
-#     im0 = np.array( Image.open("Images/smallTest2.jpg") )
+#     im0 = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 10), fiberBox((400, 200), (300, 150), 3*pi/9, 10) )
+    im0 = np.array( Image.open("Images/smallTest2.jpg") )
+    im0 = ndimage.gaussian_filter(im0.copy(), sigma=3)
 
-    filterImage(im, 10)
+    filterImage(im0, 10)
     
     return
 #     x, y = np.indices((5, 5))
@@ -2101,7 +2202,9 @@ Then create a network of connected white spots.
 
     
 if __name__ == "__main__":
-    cPythonStuff()
+    import cProfile
+    cProfile.run('cPythonStuff()')
+#     cPythonStuff()
     
 #     d1 = datetime.datetime.now()
 
