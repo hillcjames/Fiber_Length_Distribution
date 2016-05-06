@@ -73,7 +73,6 @@ from skimage.draw import line_aa
 from numpy.core.numeric import ndarray
 from subprocess import call
 from random import randint
-from posix import unlink
 
 # im = Image.open("Images/midSizedTest.jpg")
 # # im = Image.open("Images/smallTest.jpg")
@@ -354,7 +353,7 @@ class BigImage:
         for i in range(0, len(self.imgs)):
             offset = ( (i%self.num_columns)*self.sliceW, (i//self.num_columns)*self.sliceH )
 #             print("**********",offset, self.sliceW, self.sliceH, i, self.num_columns, self.num_rows)
-            fiber.draw(self.imgs[i], offset, c)
+            fiber.draw(self.imgs[i], c, offset)
     
     def saveAll(self):
         for i in range(0, len(self.imgs)):
@@ -382,8 +381,17 @@ class Fiber:
     def __init__(self, points, fiberW):
         self.pnts = points
         self.w = fiberW
+        self.calcLineProperties()
+    
+    def calcLineProperties(self):
         self.calcAngle()
         self.calcLength()
+        
+        p1, p2 = self.pnts[0], self.pnts[len(self.pnts)-1]
+        
+        
+        self.a = (p2[1] - p1[1])/(p1[0]*p2[1] - p2[0]*p1[1] + 0.01)
+        self.b = (p2[0] - p1[0])/(p1[1]*p2[0] - p2[1]*p1[0] + 0.01)
     
     def calcAngle(self):
         p0, p1 = self.pnts[0], self.pnts[len(self.pnts)-1]
@@ -402,7 +410,7 @@ class Fiber:
 #             ySum += p[1]
 #         return (xSum//len(self.pnts), ySum//len(self.pnts))
     
-    def draw(self, im, offset, c):
+    def draw(self, im, c, offset = (0, 0)):
         draw = ImageDraw.Draw(im)
         for i in range(0, len(self.pnts)-1):
             p1 = (self.pnts[i][0] - offset[0], self.pnts[i][1] - offset[1])
@@ -1699,7 +1707,8 @@ class Graph(dict):
     def __init__(self, im, points, maxDist, fiberW):
         # for each point, look in a circle until you hit another point or reach the maximum
         # link distance. 
-        radiusList = np.arange(1.0 , maxDist, 0.8)
+        radiusList = np.arange(1.0 , maxDist, 0.4)
+        thetaList0 = np.arange(0 , 2*pi, pi/60)
 
         for p in points:
             self[p] = Graph.Point(p)
@@ -1707,7 +1716,8 @@ class Graph(dict):
         self.im = im
         self.fw = fiberW
         self.endPoints = {}
-        raise Exception("test on tiny image with 45 degree line to see why it links so many together")
+        self.invSqrRt2 = 1/sqrt(2) 
+#         raise Exception("test on tiny image with 45 degree line to see why it links so many together")
     
         i = 0
         for p0 in self:
@@ -1716,14 +1726,21 @@ class Graph(dict):
             i+=1
 #             if i == 1000:
 #                 break
-            for t0 in range(0, 360, 6):
-                t = t0*pi/180
+#             for entry in self.items():
+#                 print(entry[0], [link.p for link in entry[1].links])
+#             for t0 in range(0, 360, 6):
+#                 t = t0*pi/180
+            thetaList = thetaList0.copy()
+            for t in thetaList:
+                if t == -1:
+                    continue
                 for r in radiusList:
                     p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
                          int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
-    #                 print("\t", p)
                     if (p != p0) and (p in self):
+#                         print("\t", (int)(t*100)/100, r, p, p0)
                         if not (Graph.Point.linked(self[p], self[p0])):
+#                             print("\t\t", (int)(t*100)/100, r, p, p0)
                             notCycle = True
                               
                             for p1 in self[p0].links:
@@ -1731,10 +1748,11 @@ class Graph(dict):
 #                                 print(p0, p, p1.p, abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]))
                                 if abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]) == 1:
                                     notCycle = False
-                                      
-                              
+                            
                             if findPath(im, p0, p) and notCycle:
+#                                 print("\t\t\t", (int)(t*100)/100, r, p, p0)
                                 Graph.Point.link(self[p], self[p0])
+                                self.removeArc(thetaList, t, r)
                                 break
                         else:
                             break
@@ -1750,9 +1768,6 @@ class Graph(dict):
 #                         break
             
 
-
-
-
     #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
     #                  int(p0[1] + (radiusList[-1] * np.array([cos(t), sin(t)]))[1]) )
                     
@@ -1760,7 +1775,24 @@ class Graph(dict):
     #         displayPlots([im])
     #         return
         
-#         self.prune()
+        
+        # you need two, since I broke small cycles in the init,
+        # so what would have been
+        #     1-{2}, 2-{1, 3, 4}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+        # is now
+        #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
+        # which yields after the first prune
+        #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{3, 5}, 5-{4)
+        # which yields
+        #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{3, 5}, 5-{4), then
+        #     1-{2}, 2-{1, 3}, 4-{2, 5}, 5-{4), then
+        #     1-{5}, 5-{1)
+        print("About to prune")
+        self.prune()
+        print("About to prune again")
+        self.prune()
+        print("...Done")
+        
         self.getEndpoints()
     
 #     @staticmethod
@@ -1785,6 +1817,25 @@ class Graph(dict):
 #             if abs(p[0] - p1.p[0]) + abs(p[1] - p1.p[1]) == 1:
 #                 notCycle = False
 #         return notCycle
+    
+    def removeArc(self, angleList, angle, dist):
+        # times 4 to lessen likelihood of cycles
+        arcAngle = 4* atan( self.invSqrRt2 / dist )
+        lBnd = angle - arcAngle
+        rBnd = angle + arcAngle
+        if lBnd < 0:
+            lBnd += 2*pi
+        if rBnd > 2*pi:
+            rBnd -= 2*pi
+
+        for i in range(0, len(angleList)):
+            if angleList[i] == -1:
+                continue
+            if angleList[i] > lBnd and angleList[i] < lBnd + 2 * arcAngle:
+                angleList[i] = -1
+            elif angleList[i] < rBnd and angleList[i] > rBnd - 2 * arcAngle:
+                angleList[i] = -1
+            
     
     @staticmethod
     def toPointDict(l):
@@ -1862,21 +1913,85 @@ class Graph(dict):
     #     for p in g:
     #         g[p].visited = False
     
-    def findFibers(self, fiberW):
+    def getNextPoint(self, node, prev, angleTol):
+        # angleTol is the tolerance on either side. So half of total range.
+        t0 = self.getAngle(prev.p, node.p)
+        best = (0, angleTol)
+        for x in node.links:
+            if x == prev:
+                continue
+            t = self.getAngle(node.p, x.p)
+            err = t - t0
+            while err > pi:
+                err -= 2 * pi 
+            while err < -pi:
+                err += 2 * pi
+            
+            if abs(err) < best[1]:
+                best = (x, abs(err))
+        
+        return best[0]
+            
+    
+    def getAngle(self, p1, p2):
+        return atan((p2[1] - p1[1])/(p2[0] - p1[0]+0.1))
+    
+    def findFibers(self):
         fiberList = []
         
-        chains = []
+#         print("fibers")
         for e in self.endPoints.copy():
-            if not e in self.endPoints:
+#             print("e: ", e)
+            if not e in self.endPoints or not e in self:
                 continue
             
             chain = []
             
+            prv = self[e]
+            nxt = self[e].links[0]
+            chain.append(self[e])
+            
+            while True:
+#                 print(nxt.p)
+                temp = -1
+#                 print(nxt.p, len(nxt.links))
+                if len(nxt.links) == 2:
+                    if nxt.links[0] != prv:
+                        temp = nxt.links[0]
+                    else: 
+                        temp = nxt.links[1]
+                elif  len(nxt.links) == 1:
+                    chain.append(nxt)
+                    break
+                else: #intersection
+                    nxP = self.getNextPoint(nxt, prv, pi/8)
+                    if nxP != 0:
+                        temp = nxP
+                        
+                if temp == -1:
+                    chain.append(nxt)
+                    break
+                
+                prv = nxt
+                nxt = temp
+#                 print(nxt)
+                chain.append(nxt)
+                
+                if nxt.p not in self.endPoints:
+                    break
+                
+            chain0 = []
+            for p in chain:
+                chain0.append(p.p)
+#             print(chain0)
             Graph.unlinkChain(chain)
             self.prune()
+            #don't prune the whole thing, just prune the points that had been touched
+#             self.pruneChain()
             
-            f = Fiber(chain, fiberW)
-            if f.length > 10:
+            
+            f = Fiber(chain0, self.fw)
+            if f.length > 4:
                 fiberList.append(f)
         return fiberList
     
@@ -1885,118 +2000,90 @@ class Graph(dict):
         for i in range(0, len(l) - 1):
             p1 = l[i]
             p2 = l[i + 1]
-        Graph.Point.unlink(p1, p2)
+            if Graph.Point.linked(p1, p2):
+                Graph.Point.unlink(p1, p2)
     
-
-# def unlinkFiber( l ):
-#     for i in range(0, len(l) - 1):
-#         p1 = l[i]
-#         p2 = l[i + 1]
-#         Point.unlink(p1, p2)
-# 
-# def getEndpoints(g):
-#     endPoints = []
-#     for p in g:
-#         if len(g[p].links) == 1:
-#             endPoints.append(g[p])
-# 
-# def traceFibers(g, minL):
-#     endPoints = getEndpoints(g)
-#     
-#     for p in g.copy():
-#         if not (p in g):
-#             continue
-#         
-#         fiberGood = False
-#         l = []
-#         
-#         l.append(g[p])
-#         
-#         
-#         
-#         if fiberGood:
-#             # this seems slow, having to make a mini graph every fiber
-#             fGraph = toPointDict(f.pnts)
-#             unlinkFiber( l )
-#             pruneGraph(fGraph, endPoints)
-#         else:
-#             ()
-#             # Maybe?
-# #             unlinkFiber( l )
-# 
-# def createGraph(im, points, maxDist):
-#     # for each point, look in a circle until you hit another point or reach the maximum
-#     # link distance. 
-#     radiusList = np.arange(1.0 , maxDist, 0.8)
-# 
-#     graph = toPointDict(points)
-#     
-#     for p0 in graph:
-#         for t0 in range(0, 360, 6):
-#             t = t0*pi/180
-#             for r in radiusList:
-#                 p = (int(p0[0] + (r * np.array([cos(t), sin(t)]))[0]), 
-#                      int(p0[1] + (r * np.array([cos(t), sin(t)]))[1]) )
-# #                 print("\t", p)
-#                 if (p != p0) and (p in points):
-#                     if not (Point.linked(graph[p], graph[p0])):
-#                         if findPath(im, p0, p):
-#                             Point.link(graph[p], graph[p0])
-#                     else:
-#                         break
-# #             p = (int(p0[0] + (radiusList[-1] * np.array([cos(t), sin(t)]))[0]), 
-# #                  int(p0[1] + (radiusList[-1] * np.array([cos(t), sin(t)]))[1]) )
-#                 
-# #                 im[p] = 255
-# #         displayPlots([im])
-# #         return        
-# #     pruneGraph( graph )
-# 
-#     return graph
-# 
-#     
-# def pruneGraph( graph, endPoints ):
-#     pToDelete = []
-#     pToCut = []
-#     for p0 in graph:
-#         p = graph[p0]
-#         if len(p.links) < 1:
-#             pToDelete.append(p.p)
-#             
-#         inLine = True
-#         if (len(p.links) == 2) and inLine:
-#             pToCut.append(p.p)
-#             
-#     for p in pToDelete:
-#         graph[p].visited = True
-#         if graph[p] in endPoints:
-#             endPoints.remove(graph[p])
-#         del graph[p]
-#         
-# #     print()
-#         
-#     for p in pToCut:
-#         print("....", p)
-#         graph[p].printLinks(",,,,")
-#         Point.cutOut(graph[p])
-#         del graph[p]
-#         
-# def drawGraph(im, g):
-# #     for p in g:
-# #         g[p].visited = False
-#     
-#     # DFS
-#     for p1 in g:
-#         for p2 in g[p1].links:
-#             rr, cc, val = line_aa(*p1 + p2.p)
-#             im[rr, cc] = 55  + randint(0, 1)
-# #             if not g[p2].visited:
-# #                 
-# #     for p in g:
-# #         g[p].visited = False
-#         
+    def save(self, fileName):
+        file = open(fileName, mode='w')
+        for p in self:
+            string = " ".join(str(x) for x in p) + " " + " ".join(" ".join(str(x) for x in p0.p) for p0 in self[p].links) + "\n"
+            print(string)
+            file.write(string)
+    
+    @staticmethod
+    def load(fileName):
+        file = open(fileName, mode='r')
+        file.read
+        graph = Graph()
+        print("here")
+        for l in file:
+            print("__")
+            l = l[:-1].split(" ")
+            for i in range(0, len(l)):
+                l[i] = int(l[i])
+            print(l)
+            p = (l[0], l[1])
+            l = l[2:]
+            print(l)
+            point = Graph.Point(p)
+            for i in range(0, len(l), 2):
+                point.links.append((l[i], l[i+1]))
+                
+        for p in graph:
+            for i in range(0, len(graph[p].links)):
+                if graph[p].links[i] in graph:
+                    graph[p].links[i] = graph[graph[p].links[i]]
+                else:
+                    print(graph[p].links[i])
 
 
+def getLineCoeffs(p1, p2):
+    print(p1, p2, p1[1]*p2[0], p2[1]*p1[0])
+    a = (p2[1] - p1[1])/(p1[0]*p2[1] - p2[0]*p1[1] + 0.01)
+    b = (p2[0] - p1[0])/(p1[1]*p2[0] - p2[1]*p1[0] + 0.01)
+    return a, b
+#     print(a, b)
+#     if abs(a) < abs(b):
+#         for x in range(p1[0], p2[0] + 1):
+#             y = 1/b - (a/b)*x
+#     else:
+#         for y in range(p1[1], p2[1] + 1):
+#             x = 1/a - (b/a)*y
+#     return (y, x)
+
+def binFibers(fiberSegments, imW, imH):
+    '''
+    This will store bins in a dictionary, allowing for range queries by dividing out the
+    lower numbers of the keys of access.
+    The bin will be found using the bin dictionary, and then that bin's count will be incremented.
+    At the end, the counts will be used to find local maximums of line likelihood.
+    The line will be traced from left to right until it gets close to a segment, and will continue
+    looking ahead until it goes off-screen or stops being some distance close to a segment.
+    Segments in that bin, that is.
+    Remember to only look ahead for a lack of a segment, don't adjust the new endpoint until you've
+    found a segment to extend the line to.
+    '''
+    class Bin:
+        def __init__(self, a, b):
+            # ax + by = 1
+            self.a = a
+            self.b = b
+            self.count = 0
+    
+    numBins = 500
+    bins = {}
+    
+    for f in fiberSegments:
+        a, b = getLineCoeffs(f.pnts[0], f.pnts[len(f.pnts) - 1])
+        A = int(a*numBins)
+        B = int(b*numBins)
+        bin = Bin(a, b)
+        if not (A, B) in bins:
+            bins[(A, B)] = bin
+        bins[(A, B)].count =+ 1
+        print(a, b)
+
+    
 
 
 def tempGraphStuff(im, l, fw):
@@ -2007,38 +2094,58 @@ def tempGraphStuff(im, l, fw):
     im0 = im.copy()
     print("About to create graph")
     g = Graph(im, l, 1.5*sqrt(5), fw)
+#     g = Graph(im, l, 6, fw) # find how to fix cycles
     print("...Done")
 #     return
     
     
-    g.drawGraph(im0)
-    for p in g:
-        im0[p] = 255
-        print(g[p].p, [p0.p for p0 in g[p].links], im0[p])
+#     g.drawGraph(im0)
+#     for p in g:
+#         im0[p] = 255
+#         print(g[p].p, [p0.p for p0 in g[p].links], im0[p])
         
-    print("\n")
-    # you need two, since I broke small cycles in the init,
-    # so what would have been
-    #     1-{2}, 2-{1, 3, 4}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
-    # is now
-    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
-    # which yields after the first prune
-    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
-    # which yields
-    #     1-{2}, 2-{1, 3}, 3-{2, 4}, 4-{2, 3, 5}, 5-{4)
-    # which yields
-    print("About to prune")
-    g.prune()
-    print("About to prune again")
-    g.prune()
-    print("...Done")
- 
+
+#     g.save("1_50_may_5.txt")
+#     
+#     im1 = im.copy()
+#     newG = Graph.load("1_50_may_5.txt")
+    
+    
+#     file = open(fileName, mode='w')
+#     string = " ".join(str(p) for p in g.endPoints)
+#     print(string)
+#         file.write(string)
+    
+    im1 = im.copy()
+    
     g.drawGraph(im)
     for p in g:
         im[p] = 255
-        print(g[p].p, [p0.p for p0 in g[p].links])
     
-    displayPlots([im])
+    
+    fibers = g.findFibers()
+    
+    binFibers(fibers, len(im), len(im[0]))
+    
+    for f in fibers:
+        print(f, f.pnts[0], f.pnts[len(f.pnts) - 1])
+        p1 = f.pnts[0]
+        p2 = f.pnts[len(f.pnts) - 1]
+        
+        rr, cc, val = line_aa(*p1 + p2)
+        im1[rr, cc] = 55  + randint(0, 1)
+        
+        im1[p1] = 255
+        im1[p2] = 255
+    
+#     newG.drawGraph(im1)
+#     for p in g:
+#         im[p] = 255
+#         print(g[p].p, [p0.p for p0 in g[p].links])
+     
+    displayPlots([im, im1])
+    
+    
     return
 
 # when traversing, give nodes a value that is unique for every fiber trace.
@@ -2080,27 +2187,48 @@ def filterImage( im0, fw):
     temp3 = toBinImg(temp2 - ndimage.convolve(temp2, f3)//2)
     final = toBinImg(temp3 - ((ndimage.convolve(temp3, f4)%4) + 1 )//4)
     ims = [ im0, local_maxi * 64, temp3*64, final*64 ]
-#     displayPlots(ims[0::3])
-
+#     displayPlots(ims)
+#     return
     maxPoints = np.nonzero(final)
      
     maxPoints = list(zip(maxPoints[0], maxPoints[1]))
-
+    
     tempGraphStuff(blankIm, maxPoints, fw)
     return final
 
 from quickFuncs import *
 def cPythonStuff():
     
-    call(["python3", "setup.py", "build_ext", "--inplace"])
-    im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
-    im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
+#     call(["python3", "setup.py", "build_ext", "--inplace"])
+#     im0 = fiberBox((20, 20), (10, 10), 3*pi/4, 5)
+#     im0 = mergeIms( fiberBox((40, 20), (10, 15), 4*pi/7, 5), fiberBox((40, 20), (30, 15), 8*pi/7, 5) )
+#     im1 = mergeIms( fiberBox((40, 20), (30, 15), 2*pi/7, 5), fiberBox((40, 20), (20, 15), 7*pi/9, 5) )
 #     im0 = mergeIms(im0, im1)
 #     im0 = fiberBox((40, 20), (10, 15), 4*pi/7, 5)
 #     im0 = mergeIms( fiberBox((400, 200), (100, 150), 4*pi/7, 10), fiberBox((400, 200), (300, 150), 3*pi/9, 10) )
+#     filterImage(im0, 5)
+    
+#     im = np.zeros((20,20))
+# 
+#     p1 = (2, 3)
+#     p2 = (7, 10)
+#     
+#     a = (p2[1] - p1[1])/(p1[0]*p2[1] - p2[0]*p1[1])
+#     b = (p2[0] - p1[0])/(p1[1]*p2[0] - p2[1]*p1[0])
+#     print(a, b)
+#     if abs(a) < abs(b):
+#         for x in range(p1[0], p2[0] + 1):
+#             y = 1/b - (a/b)*x
+#             im[(int(y), int(x))] = 255
+#     else:
+#         for y in range(p1[1], p2[1] + 1):
+#             x = 1/a - (b/a)*y
+#             im[(int(y), int(x))] = 255
+#     displayPlots([im])
+    
     im0 = np.array( Image.open("Images/smallTest2.jpg") )
     im0 = ndimage.gaussian_filter(im0.copy(), sigma=3)
-
+  
     filterImage(im0, 10)
     
     return
@@ -2202,9 +2330,9 @@ Then create a network of connected white spots.
 
     
 if __name__ == "__main__":
-    import cProfile
-    cProfile.run('cPythonStuff()')
-#     cPythonStuff()
+#     import cProfile
+#     cProfile.run('cPythonStuff()')
+    cPythonStuff()
     
 #     d1 = datetime.datetime.now()
 
